@@ -41,11 +41,15 @@ def build_agent() -> Agent[RunDeps]:
         "When giving advice, be concise and quantify when possible."
     )
 
+    # Create minimal ModelSettings for GPT-5 compatibility 
+    # GPT-5 doesn't support max_tokens, temperature, or many other parameters
+    model_settings = ModelSettings()
+
     return Agent[RunDeps](
         name="FinancialAgent",
         instructions=instructions,
         model=build_app_config().model,
-        model_settings=ModelSettings(),
+        model_settings=model_settings,
         tools=[
             ingest_csv,
             ingest_pdfs,

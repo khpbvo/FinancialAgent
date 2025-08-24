@@ -20,5 +20,8 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
-package-dir = {"" = "."}
-packages = ["financial_agent", "financial_agent.tools"]
+packages = ["financial_agent", "financial_agent.tools", "financial_agent.db"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+"financial_agent.db" = ["finance.db"]
