@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: financial_postgres
+    environment:
+      POSTGRES_USER: financial_user
+      POSTGRES_PASSWORD: financial_pass
+      POSTGRES_DB: financial_agent
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U financial_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  financial_agent:
+    build: .
+    container_name: financial_expert_agent
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      DATABASE_URL: postgresql://financial_user:financial_pass@postgres:5432/financial_agent
+    volumes:
+      - ./uploads:/app/uploads
+      - ./exports:/app/exports
+      - ./documents:/app/documents
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stdin_open: true
+    tty: true
+    command: python main.py status
+
+volumes:
+  postgres_data:

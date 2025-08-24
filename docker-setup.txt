@@ -1,0 +1,207 @@
+# docker-compose.yml
+version: '3.8'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg15
+    container_name: financial_postgres
+    environment:
+      POSTGRES_USER: financial_user
+      POSTGRES_PASSWORD: financial_pass
+      POSTGRES_DB: financial_agent
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U financial_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  financial_agent:
+    build: .
+    container_name: financial_expert_agent
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      DATABASE_URL: postgresql://financial_user:financial_pass@postgres:5432/financial_agent
+    volumes:
+      - ./uploads:/app/uploads
+      - ./exports:/app/exports
+      - ./documents:/app/documents
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stdin_open: true
+    tty: true
+    command: python main.py status
+
+volumes:
+  postgres_data:
+
+---
+# Dockerfile
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Create necessary directories
+RUN mkdir -p uploads exports documents
+
+# Set Python path
+ENV PYTHONPATH=/app
+
+# Default command
+CMD ["python", "main.py", "--help"]
+
+---
+# init.sql (Database initialization)
+CREATE EXTENSION IF NOT EXISTS vector;
+
+-- Create indexes for better performance
+CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date);
+CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category);
+CREATE INDEX IF NOT EXISTS idx_transactions_amount ON transactions(amount);
+CREATE INDEX IF NOT EXISTS idx_documents_upload_date ON documents(upload_date);
+
+-- Create function for similarity search
+CREATE OR REPLACE FUNCTION find_similar_transactions(
+    query_embedding vector(3072),
+    match_count int DEFAULT 10
+)
+RETURNS TABLE(
+    id int,
+    amount float,
+    description text,
+    category varchar,
+    similarity float
+)
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    RETURN QUERY
+    SELECT 
+        t.id,
+        t.amount,
+        t.description,
+        t.category,
+        1 - (t.embedding <=> query_embedding) as similarity
+    FROM transactions t
+    WHERE t.embedding IS NOT NULL
+    ORDER BY t.embedding <=> query_embedding
+    LIMIT match_count;
+END;
+$$;
+
+---
+# .dockerignore
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.gitignore
+.mypy_cache
+.pytest_cache
+.hypothesis
+uploads/*
+exports/*
+documents/*
+.env.local
+.DS_Store
+
+---
+# Makefile (For easy commands)
+.PHONY: help build up down restart logs shell analyze clean
+
+help:
+	@echo "Available commands:"
+	@echo "  make build    - Build Docker images"
+	@echo "  make up       - Start all services"
+	@echo "  make down     - Stop all services"
+	@echo "  make restart  - Restart all services"
+	@echo "  make logs     - View logs"
+	@echo "  make shell    - Open shell in container"
+	@echo "  make analyze  - Analyze a document"
+	@echo "  make chat     - Start chat mode"
+	@echo "  make clean    - Clean up volumes"
+
+build:
+	docker-compose build
+
+up:
+	docker-compose up -d
+	@echo "Waiting for services to be ready..."
+	@sleep 5
+	docker-compose exec financial_agent python main.py status
+
+down:
+	docker-compose down
+
+restart:
+	docker-compose restart
+
+logs:
+	docker-compose logs -f
+
+shell:
+	docker-compose exec financial_agent /bin/bash
+
+analyze:
+	@read -p "Enter document path: " doc_path; \
+	docker-compose exec financial_agent python main.py analyze /app/documents/$$doc_path
+
+chat:
+	docker-compose exec -it financial_agent python main.py chat
+
+summary:
+	docker-compose exec financial_agent python main.py summary --period last_month
+
+clean:
+	docker-compose down -v
+	rm -rf uploads/* exports/*
+
+# Development commands
+dev-setup:
+	python -m venv venv
+	./venv/bin/pip install -r requirements.txt
+	cp .env.example .env
+	@echo "Edit .env file with your OpenAI API key"
+
+test:
+	docker-compose exec financial_agent python -m pytest tests/
+
+backup-db:
+	docker-compose exec postgres pg_dump -U financial_user financial_agent > backup_$(shell date +%Y%m%d_%H%M%S).sql
+
+restore-db:
+	@read -p "Enter backup file: " backup_file; \
+	docker-compose exec -T postgres psql -U financial_user financial_agent < $$backup_file
