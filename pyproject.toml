@@ -1,0 +1,24 @@
+[project]
+name = "financial-agent"
+version = "0.1.0"
+description = "Financial document analysis agent with memory"
+authors = [ { name = "You" } ]
+requires-python = ">=3.10"
+readme = "README.md"
+dependencies = [
+	"openai>=1.40.0",
+	"openai-agents>=0.1.0",
+	"PyPDF2>=3.0.1",
+	"pydantic>=2.7.0",
+]
+
+[project.scripts]
+financial-agent = "financial_agent.cli:main"
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+packages = ["financial_agent", "financial_agent.tools"]
