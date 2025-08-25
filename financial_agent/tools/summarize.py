@@ -14,7 +14,7 @@ SUMMARIZER_PROMPT = (
 
 
 @function_tool
-def summarize_file(ctx: RunContextWrapper[RunDeps], relative_path: str) -> str:
+async def summarize_file(ctx: RunContextWrapper[RunDeps], relative_path: str) -> str:
     """Summarize a single file under documents/ and store in memory.
 
     Args:
@@ -47,10 +47,10 @@ def summarize_file(ctx: RunContextWrapper[RunDeps], relative_path: str) -> str:
         name="Summarizer",
         instructions=SUMMARIZER_PROMPT,
         model=deps.config.model,
-    model_settings=ModelSettings(),
+        model_settings=ModelSettings(),
     )
 
-    result = Runner.run_sync(agent, f"Summarize this:\n\n{content}", context=deps)
+    result = await Runner.run(agent, f"Summarize this:\n\n{content}", context=deps)
     output = str(result.final_output)
 
     cur = deps.db.conn.cursor()
@@ -60,7 +60,7 @@ def summarize_file(ctx: RunContextWrapper[RunDeps], relative_path: str) -> str:
 
 
 @function_tool
-def summarize_overview(ctx: RunContextWrapper[RunDeps], last_n_memories: int = 20) -> str:
+async def summarize_overview(ctx: RunContextWrapper[RunDeps], last_n_memories: int = 20) -> str:
     """Produce an overview summary across the latest stored summaries and transactions."""
     deps = ctx.context
     # pull some content from memories and transactions
@@ -85,10 +85,10 @@ def summarize_overview(ctx: RunContextWrapper[RunDeps], last_n_memories: int = 2
             "detect spending patterns and risks, and suggest top 3 actions."
         ),
         model=deps.config.model,
-    model_settings=ModelSettings(),
+        model_settings=ModelSettings(),
     )
 
-    result = Runner.run_sync(agent, f"Create an overview based on:\n{corpus[:6000]}", context=deps)
+    result = await Runner.run(agent, f"Create an overview based on:\n{corpus[:6000]}", context=deps)
     output = str(result.final_output)
     cur = deps.db.conn.cursor()
     cur.execute(INSERT_MEMORY, ("insight", output, "overview"))

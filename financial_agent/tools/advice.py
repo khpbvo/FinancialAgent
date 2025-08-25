@@ -27,7 +27,7 @@ class AnalysisPrompt:
 
 
 @function_tool
-def analyze_and_advise(ctx: RunContextWrapper[RunDeps], question: str, extra_context: str | None = None) -> str:
+async def analyze_and_advise(ctx: RunContextWrapper[RunDeps], question: str, extra_context: str | None = None) -> str:
     """Ask the financial expert to analyze your data and provide advice.
 
     Args:
@@ -44,7 +44,7 @@ def analyze_and_advise(ctx: RunContextWrapper[RunDeps], question: str, extra_con
     )
 
     prompt = AnalysisPrompt(question=question, extra_context=extra_context)
-    result = Runner.run_sync(
+    result = await Runner.run(
         expert,
         prompt.to_text(),
         context=deps,
