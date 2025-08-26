@@ -7,7 +7,14 @@ from ..context import RunDeps
 from ..db.sql import LIST_RECENT_TRANSACTIONS, SEARCH_TRANSACTIONS
 
 
-@function_tool
+def query_error_handler(context: RunContextWrapper[Any], error: Exception) -> str:
+    """Custom error handler for database query failures."""
+    if "database" in str(error).lower() or "sqlite" in str(error).lower():
+        return "Database query failed. The database may be locked or corrupted. Please try again."
+    else:
+        return f"Query failed: {str(error)}. Please check your search criteria."
+
+@function_tool(failure_error_function=query_error_handler)
 def list_recent_transactions(ctx: RunContextWrapper[RunDeps], limit: int = 20) -> str:
     """List the most recent transactions from memory.
 
@@ -25,7 +32,7 @@ def list_recent_transactions(ctx: RunContextWrapper[RunDeps], limit: int = 20) -
     return "\n".join(lines) if lines else "No transactions found."
 
 
-@function_tool
+@function_tool(failure_error_function=query_error_handler)
 def search_transactions(
     ctx: RunContextWrapper[RunDeps],
     start_date: str | None = None,

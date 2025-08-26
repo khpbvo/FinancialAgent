@@ -6,6 +6,7 @@ from typing import Any, Iterable
 import csv
 
 from agents import RunContextWrapper, function_tool
+from typing import Any
 
 from ..context import RunDeps
 from ..db.sql import INSERT_TRANSACTION
@@ -95,7 +96,16 @@ def ingest_csv_file(deps: RunDeps, csv_path: Path) -> str:
     return f"Ingested {inserted} transactions from {csv_path.name}"
 
 
-@function_tool
+def csv_error_handler(context: RunContextWrapper[Any], error: Exception) -> str:
+    """Custom error handler for CSV ingestion failures."""
+    if "not found" in str(error).lower():
+        return f"Could not find the CSV file. Please check the path and try again."
+    elif "permission" in str(error).lower():
+        return f"Permission denied accessing the file. Please check file permissions."
+    else:
+        return f"Failed to ingest CSV: {str(error)}. Please verify the file format is correct."
+
+@function_tool(failure_error_function=csv_error_handler)
 def ingest_csv(ctx: RunContextWrapper[RunDeps], path: str) -> str:
     """Ingest a CSV file of transactions into the database.
 

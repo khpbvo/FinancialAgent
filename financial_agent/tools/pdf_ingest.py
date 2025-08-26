@@ -5,6 +5,7 @@ from typing import Iterable
 
 from PyPDF2 import PdfReader
 from agents import RunContextWrapper, function_tool
+from typing import Any
 
 from ..context import RunDeps
 from ..db.sql import INSERT_MEMORY
@@ -30,7 +31,16 @@ def extract_text_from_pdf(path: Path, max_chars: int = 4000) -> str:
     return "\n".join(texts)
 
 
-@function_tool
+def pdf_error_handler(context: RunContextWrapper[Any], error: Exception) -> str:
+    """Custom error handler for PDF ingestion failures."""
+    if "pypdf" in str(error).lower():
+        return "Failed to read PDF. The file may be corrupted or password protected."
+    elif "not found" in str(error).lower():
+        return "No PDF files found in the documents directory."
+    else:
+        return f"PDF ingestion failed: {str(error)}. Please check the PDF files are valid."
+
+@function_tool(failure_error_function=pdf_error_handler)
 def ingest_pdfs(ctx: RunContextWrapper[RunDeps], directory: str | None = None, limit: int = 10) -> str:
     """Ingest PDF files by extracting text snippets and saving as memories.
 

@@ -1,19 +1,22 @@
-from dataclasses import dataclass
 from pathlib import Path
 import sqlite3
 from typing import Optional
+from pydantic import BaseModel, Field
 
 
 DEFAULT_DB_PATH = Path(__file__).parent / "db" / "finance.db"
 DOCUMENTS_DIR = Path(__file__).parents[1] / "documents"
 
 
-@dataclass
-class AppConfig:
-    openai_api_key: str
-    model: str = "gpt-5"
-    db_path: Path = DEFAULT_DB_PATH
-    documents_dir: Path = DOCUMENTS_DIR
+class AppConfig(BaseModel):
+    """Application configuration with validation."""
+    openai_api_key: str = Field(description="OpenAI API key")
+    model: str = Field(default="gpt-5", description="Model to use")
+    db_path: Path = Field(default=DEFAULT_DB_PATH, description="Database path")
+    documents_dir: Path = Field(default=DOCUMENTS_DIR, description="Documents directory")
+    
+    class Config:
+        arbitrary_types_allowed = True
 
 
 class DB:
@@ -58,11 +61,15 @@ class DB:
         self.conn.commit()
 
 
-@dataclass
-class RunDeps:
-    config: AppConfig
-    db: DB
+class RunDeps(BaseModel):
+    """Runtime dependencies with validation."""
+    config: AppConfig = Field(description="Application configuration")
+    db: DB = Field(description="Database connection")
+    
+    class Config:
+        arbitrary_types_allowed = True
 
     def ensure_ready(self) -> None:
+        """Ensure all dependencies are ready."""
         self.db.init()
         self.config.documents_dir.mkdir(parents=True, exist_ok=True)

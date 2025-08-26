@@ -5,17 +5,28 @@ import os
 import sys
 from typing import Optional
 
-from agents import Runner, ItemHelpers
+from agents import Runner, ItemHelpers, SQLiteSession
 from openai.types.responses import ResponseTextDeltaEvent
+from pathlib import Path
 
 from .agent import build_agent, build_deps
 
 
-async def interactive_mode(agent, deps) -> None:
-    """Interactive mode with streaming support"""
+async def interactive_mode(agent, deps, use_session: bool = True) -> None:
+    """Interactive mode with streaming support and session memory"""
     print("🏦 Financial Agent Interactive Mode")
     print("Type 'quit' or 'exit' to leave, 'help' for commands")
     print("-" * 50)
+    
+    # Initialize session for conversation persistence
+    session = None
+    if use_session:
+        session_db_path = Path.home() / ".financial_agent" / "sessions.db"
+        session_db_path.parent.mkdir(parents=True, exist_ok=True)
+        session = SQLiteSession("default_session", str(session_db_path))
+        print("💾 Session memory enabled - conversations will be remembered")
+        print("   Use 'clear' to start a fresh conversation")
+        print("-" * 50)
     
     while True:
         try:
@@ -33,9 +44,21 @@ Available commands:
 • 'bootstrap' - Ingest documents from documents/ folder
 • 'recent' - Show recent transactions
 • 'analyze' - Analyze your spending patterns
+• 'clear' - Clear conversation history (start fresh)
+• 'history' - Show conversation history status
 • 'help' - Show this help
 • 'quit' - Exit the program
 """)
+                continue
+            
+            if user_input.lower() == 'clear' and session:
+                await session.clear_session()
+                print("🧹 Conversation history cleared")
+                continue
+            
+            if user_input.lower() == 'history' and session:
+                items = await session.get_items()
+                print(f"📜 Conversation has {len(items)} messages in history")
                 continue
             
             if user_input.lower() == 'bootstrap':
@@ -53,9 +76,9 @@ Available commands:
             if not user_input:
                 continue
             
-            # Stream the response
+            # Stream the response with session
             print("\n🤖 Thinking...")
-            result = Runner.run_streamed(agent, input=user_input, context=deps)
+            result = Runner.run_streamed(agent, input=user_input, context=deps, session=session)
             
             current_message = ""
             show_progress = True
@@ -73,9 +96,26 @@ Available commands:
                 elif event.type == "run_item_stream_event":
                     if event.item.type == "tool_call_item":
                         tool_name = getattr(event.item, 'name', getattr(event.item, 'function', {}).get('name', 'Unknown Tool'))
-                        print(f"\n🔧 Using tool: {tool_name}")
+                        # Enhanced tool progress with descriptions
+                        tool_descriptions = {
+                            "ingest_csv": "📊 Processing CSV file",
+                            "ingest_pdfs": "📄 Extracting PDF content",
+                            "list_recent_transactions": "📋 Fetching recent transactions",
+                            "search_transactions": "🔍 Searching transaction history",
+                            "analyze_and_advise": "💡 Analyzing financial data",
+                            "summarize_file": "📝 Summarizing document",
+                            "add_transaction": "➕ Adding transaction",
+                            "list_memories": "🧠 Retrieving memories"
+                        }
+                        desc = tool_descriptions.get(tool_name, f"🔧 Using tool: {tool_name}")
+                        print(f"\n{desc}")
                     elif event.item.type == "tool_call_output_item":
-                        print(f"✅ Tool completed")
+                        # Show tool output preview if available
+                        output = getattr(event.item, 'output', '')
+                        if output and len(output) < 100:
+                            print(f"✅ Completed: {output[:100]}")
+                        else:
+                            print(f"✅ Tool completed")
                     elif event.item.type == "message_output_item":
                         # If we didn't get deltas, show the full message
                         if not current_message:
@@ -102,10 +142,17 @@ Available commands:
             continue
 
 
-async def streaming_mode(agent, deps, user_input: str) -> None:
+async def streaming_mode(agent, deps, user_input: str, use_session: bool = False) -> None:
     """Single command with streaming output"""
     print("=== Financial Agent Streaming Mode ===")
-    result = Runner.run_streamed(agent, input=user_input, context=deps)
+    
+    session = None
+    if use_session:
+        session_db_path = Path.home() / ".financial_agent" / "sessions.db"
+        session_db_path.parent.mkdir(parents=True, exist_ok=True)
+        session = SQLiteSession("streaming_session", str(session_db_path))
+    
+    result = Runner.run_streamed(agent, input=user_input, context=deps, session=session)
     
     print(f"🤖 Processing: {user_input}")
     print("-" * 50)
@@ -126,9 +173,26 @@ async def streaming_mode(agent, deps, user_input: str) -> None:
         elif event.type == "run_item_stream_event":
             if event.item.type == "tool_call_item":
                 tool_name = getattr(event.item, 'name', getattr(event.item, 'function', {}).get('name', 'Unknown Tool'))
-                print(f"\n🔧 Using tool: {tool_name}")
+                # Enhanced tool progress with descriptions
+                tool_descriptions = {
+                    "ingest_csv": "📊 Processing CSV file",
+                    "ingest_pdfs": "📄 Extracting PDF content",
+                    "list_recent_transactions": "📋 Fetching recent transactions",
+                    "search_transactions": "🔍 Searching transaction history",
+                    "analyze_and_advise": "💡 Analyzing financial data",
+                    "summarize_file": "📝 Summarizing document",
+                    "add_transaction": "➕ Adding transaction",
+                    "list_memories": "🧠 Retrieving memories"
+                }
+                desc = tool_descriptions.get(tool_name, f"🔧 Using tool: {tool_name}")
+                print(f"\n{desc}")
             elif event.item.type == "tool_call_output_item":
-                print(f"✅ Tool completed")
+                # Show tool output preview if available
+                output = getattr(event.item, 'output', '')
+                if output and len(str(output)) < 100:
+                    print(f"✅ Completed: {str(output)[:100]}")
+                else:
+                    print(f"✅ Tool completed")
             elif event.item.type == "message_output_item":
                 # If we didn't get deltas, show the full message
                 if not current_message:
@@ -151,6 +215,7 @@ def main() -> None:
     parser.add_argument("--stream", action="store_true", help="Stream output events")
     parser.add_argument("--interactive", action="store_true", help="Start interactive mode")
     parser.add_argument("--bootstrap", action="store_true", help="Ingest PDFs/CSVs from documents/")
+    parser.add_argument("--no-session", action="store_true", help="Disable session memory")
     args = parser.parse_args()
 
     deps = build_deps()
@@ -165,15 +230,23 @@ def main() -> None:
         return
 
     # Interactive mode - default if no specific input
+    use_session = not args.no_session
+    
     if args.interactive or (not args.input and not args.stream):
-        asyncio.run(interactive_mode(agent, deps))
+        asyncio.run(interactive_mode(agent, deps, use_session=use_session))
     elif args.stream:
         # Streaming mode for single command
         user_input = args.input or "Analyze my recent spending."
-        asyncio.run(streaming_mode(agent, deps, user_input))
+        asyncio.run(streaming_mode(agent, deps, user_input, use_session=use_session))
     else:
         # Non-streaming mode for single command
-        result = Runner.run_sync(agent, args.input, context=deps)
+        if use_session:
+            session_db_path = Path.home() / ".financial_agent" / "sessions.db"
+            session_db_path.parent.mkdir(parents=True, exist_ok=True)
+            session = SQLiteSession("cli_session", str(session_db_path))
+            result = Runner.run_sync(agent, args.input, context=deps, session=session)
+        else:
+            result = Runner.run_sync(agent, args.input, context=deps)
         print(result.final_output)
 
 if __name__ == "__main__":
