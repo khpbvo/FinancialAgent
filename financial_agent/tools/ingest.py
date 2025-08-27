@@ -13,7 +13,41 @@ from ..db.sql import INSERT_TRANSACTION
 
 @dataclass
 class CSVMap:
-    """Mapping configuration for custom CSV column names."""
+    """Mapping configuration for custom CSV column names.
+
+    Parameters
+    ----------
+    date_col:
+        Name of the column containing the transaction date.
+    description_col:
+        Column holding the transaction description or counter-party.
+    amount_col:
+        Column with the numeric amount. Values are parsed using
+        :func:`_parse_amount`.
+    currency_col:
+        Optional column with the currency code.
+    category_col:
+        Optional column with a category or type description.
+    date_format:
+        Optional ``datetime.strptime`` format string used to parse ``date_col``.
+    sign_col:
+        Optional column indicating debit/credit. When provided, ``debit_values``
+        and ``credit_values`` control the amount sign.
+    debit_values / credit_values:
+        Iterables of strings that mark a row as a debit or credit respectively.
+
+    Examples
+    --------
+    >>> CSVMap(
+    ...     date_col="Datum",
+    ...     description_col="Omschrijving",
+    ...     amount_col="Bedrag",
+    ...     sign_col="Af Bij",
+    ...     debit_values=["Af"],
+    ...     credit_values=["Bij"],
+    ...     date_format="%Y%m%d",
+    ... )
+    """
 
     date_col: str
     description_col: str
@@ -21,6 +55,9 @@ class CSVMap:
     currency_col: str | None = None
     category_col: str | None = None
     date_format: str | None = None  # e.g. "%d-%m-%Y"
+    sign_col: str | None = None
+    debit_values: Iterable[str] | None = None
+    credit_values: Iterable[str] | None = None
 
 
 def _parse_date(value: str, fmt: str | None) -> str:
@@ -53,11 +90,28 @@ def _parse_amount(value: str) -> float:
 def process_csv_file(deps: RunDeps, csv_path: Path, csv_map: CSVMap | None = None) -> int:
     """Programmatic CSV ingestion with optional column mapping.
 
+    By supplying a :class:`CSVMap` you can describe the layout of your bank's
+    export. The mapping lets you pick column names, specify the date format and
+    even indicate which column contains debit/credit information.
+
     Args:
         deps: Application dependencies
         csv_path: Path to the CSV file
         csv_map: Optional mapping for custom CSV formats. If omitted, ING
             exports are auto-detected and default column names are used.
+
+    Example
+    -------
+    >>> csv_map = CSVMap(
+    ...     date_col="Transaction Date",
+    ...     description_col="Details",
+    ...     amount_col="Amount",
+    ...     sign_col="Type",
+    ...     debit_values=["Debit"],
+    ...     credit_values=["Credit"],
+    ...     date_format="%d/%m/%Y",
+    ... )
+    >>> process_csv_file(deps, Path("bank.csv"), csv_map)
 
     Returns:
         Number of inserted rows.
@@ -79,6 +133,14 @@ def process_csv_file(deps: RunDeps, csv_path: Path, csv_map: CSVMap | None = Non
                 date = _parse_date(row.get(csv_map.date_col, ""), csv_map.date_format)
                 desc = row.get(csv_map.description_col, "")
                 amount = _parse_amount(row.get(csv_map.amount_col, "0"))
+                if csv_map.sign_col:
+                    sign = (row.get(csv_map.sign_col) or "").lower()
+                    debit = {v.lower() for v in csv_map.debit_values or []}
+                    credit = {v.lower() for v in csv_map.credit_values or []}
+                    if sign in debit:
+                        amount = -abs(amount)
+                    elif sign in credit:
+                        amount = abs(amount)
                 currency = row.get(csv_map.currency_col) if csv_map.currency_col else None
                 category = row.get(csv_map.category_col) if csv_map.category_col else None
             elif is_ing:
@@ -142,6 +204,9 @@ def ingest_csv(
         ...     date_col="Datum",
         ...     description_col="Omschrijving",
         ...     amount_col="Bedrag",
+        ...     sign_col="Af Bij",
+        ...     debit_values=["Af"],
+        ...     credit_values=["Bij"],
         ...     date_format="%d-%m-%Y",
         ... )
         >>> ingest_csv(ctx, "mybank.csv", csv_map)
