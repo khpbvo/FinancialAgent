@@ -263,9 +263,8 @@ def main() -> None:
     parser.add_argument("--no-session", action="store_true", help="Disable session memory")
     args = parser.parse_args()
 
-    deps = build_deps()
-    agent = build_agent()
-    try:
+    with build_deps() as deps:
+        agent = build_agent()
         if args.bootstrap:
             # quick ingestion pass
             from .bootstrap import bootstrap_documents
@@ -293,8 +292,6 @@ def main() -> None:
             else:
                 result = Runner.run_sync(agent, args.input, context=deps)
             print(result.final_output)
-    finally:
-        deps.db.close()
 
 if __name__ == "__main__":
     main()
