@@ -7,6 +7,190 @@ from ..tools.budgets import set_budget, check_budget, list_budgets, suggest_budg
 from ..tools.recurring import detect_recurring, list_subscriptions, analyze_subscription_value
 
 
+def _fetch_transactions(deps: RunDeps, months_back: int):
+    """Return recent negative transactions within the date range."""
+    cur = deps.db.conn.cursor()
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=months_back * 30)
+    cur.execute(
+        """SELECT date, description, amount, category
+           FROM transactions
+           WHERE amount < 0 AND date >= ?
+           ORDER BY date""",
+        (start_date.strftime('%Y-%m-%d'),),
+    )
+    return cur.fetchall()
+
+
+def _compute_category_stats(transactions):
+    """Aggregate transactions by category, month and weekday."""
+    category_analysis: Dict[str, Dict[str, Any]] = {}
+    monthly_totals: Dict[str, float] = {}
+    daily_spending: Dict[str, float] = {}
+
+    for tx in transactions:
+        amount = abs(tx['amount'])
+        category = tx['category'] or 'uncategorized'
+        date_obj = datetime.strptime(tx['date'], '%Y-%m-%d')
+        month_key = date_obj.strftime('%Y-%m')
+        day_key = date_obj.strftime('%A').lower()
+
+        if category not in category_analysis:
+            category_analysis[category] = {
+                'total': 0,
+                'count': 0,
+                'avg_transaction': 0,
+                'transactions': [],
+            }
+
+        category_analysis[category]['total'] += amount
+        category_analysis[category]['count'] += 1
+        category_analysis[category]['transactions'].append(tx)
+
+        monthly_totals[month_key] = monthly_totals.get(month_key, 0) + amount
+        daily_spending[day_key] = daily_spending.get(day_key, 0) + amount
+
+    for data in category_analysis.values():
+        data['avg_transaction'] = data['total'] / data['count'] if data['count'] else 0
+
+    total_spent = sum(abs(tx['amount']) for tx in transactions)
+    return category_analysis, monthly_totals, daily_spending, total_spent
+
+
+def _build_insights(
+    months_back: int,
+    transactions,
+    category_analysis,
+    monthly_totals,
+    daily_spending,
+    include_behavioral_insights: bool,
+    total_spent: float,
+) -> str:
+    """Generate human-readable analysis report."""
+    results = [f"📊 Spending Pattern Analysis ({months_back} months)\n" + "=" * 50]
+
+    avg_monthly = total_spent / months_back
+    avg_daily = total_spent / (months_back * 30)
+
+    results.extend(
+        [
+            f"💰 SPENDING SUMMARY",
+            f"   Total spent: €{total_spent:.2f}",
+            f"   Monthly average: €{avg_monthly:.2f}",
+            f"   Daily average: €{avg_daily:.2f}",
+            f"   Total transactions: {len(transactions)}",
+        ]
+    )
+
+    sorted_categories = sorted(
+        category_analysis.items(), key=lambda x: x[1]['total'], reverse=True
+    )
+
+    results.append(f"\n🏷️ TOP SPENDING CATEGORIES")
+    for i, (category, data) in enumerate(sorted_categories[:5], 1):
+        percentage = (data['total'] / total_spent) * 100 if total_spent else 0
+        results.append(
+            f"   {i}. {category.title()}: €{data['total']:.2f} ({percentage:.1f}%)"
+        )
+        results.append(f"      Avg per transaction: €{data['avg_transaction']:.2f}")
+
+    if len(monthly_totals) > 1:
+        results.append(f"\n📈 MONTHLY TRENDS")
+        sorted_months = sorted(monthly_totals.items())
+        monthly_values = [amount for _, amount in sorted_months]
+        trend = "increasing" if monthly_values[-1] > monthly_values[0] else "decreasing"
+        trend_amount = abs(monthly_values[-1] - monthly_values[0])
+        results.append(f"   Trend: {trend} by €{trend_amount:.2f}")
+        for month, amount in sorted_months[-3:]:
+            results.append(f"   {month}: €{amount:.2f}")
+
+    if daily_spending:
+        results.append(f"\n📅 SPENDING BY DAY OF WEEK")
+        days_order = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
+        for day in days_order:
+            if day in daily_spending:
+                amount = daily_spending[day]
+                percentage = (amount / total_spent) * 100 if total_spent else 0
+                results.append(f"   {day.title()}: €{amount:.2f} ({percentage:.1f}%)")
+
+    if include_behavioral_insights:
+        results.append(f"\n🧠 BEHAVIORAL INSIGHTS")
+        weekend_spending = daily_spending.get('saturday', 0) + daily_spending.get('sunday', 0)
+        weekday_spending = total_spent - weekend_spending
+        if weekday_spending and weekend_spending > weekday_spending * 0.4:
+            results.append(
+                "   ⚠️ High weekend spending detected - consider weekend budgets"
+            )
+
+        large_transactions = [tx for tx in transactions if abs(tx['amount']) > avg_daily * 5]
+        if large_transactions:
+            results.append(
+                f"   💸 {len(large_transactions)} unusually large transactions found"
+            )
+            results.append("     Consider if these were planned purchases")
+
+        top_category_pct = (
+            (sorted_categories[0][1]['total'] / total_spent) * 100 if total_spent else 0
+        )
+        if top_category_pct > 40:
+            results.append(
+                f"   📊 {top_category_pct:.0f}% spent in one category - consider diversification"
+            )
+
+        high_frequency_categories = [
+            cat
+            for cat, data in category_analysis.items()
+            if data['count'] > len(transactions) * 0.2
+        ]
+        if high_frequency_categories:
+            results.append(
+                f"   🔄 High-frequency categories: {', '.join(high_frequency_categories)}"
+            )
+            results.append(
+                "     These may be good targets for habit-based budgeting"
+            )
+
+    results.append(f"\n💡 BUDGET OPTIMIZATION RECOMMENDATIONS")
+    top_category, top_data = sorted_categories[0]
+    potential_reduction = top_data['total'] * 0.15
+    results.append(
+        f"   • Reduce {top_category} by 15%: Save €{potential_reduction:.2f}/month"
+    )
+
+    if any('subscription' in tx['description'].lower() for tx in transactions):
+        results.append(
+            "   • Run analyze_subscription_value to review recurring payments"
+        )
+
+    results.append("   • Set budgets for top 3 categories to control spending")
+    results.append("   • Use suggest_budgets tool for data-driven budget amounts")
+
+    return "\n".join(results)
+
+
+@function_tool
+async def analyze_spending_patterns(
+    ctx: RunContextWrapper[RunDeps],
+    months_back: int = 6,
+    include_behavioral_insights: bool = True,
+) -> str:
+    """Perform deep analysis of spending patterns and behavioral triggers."""
+    deps = ctx.context
+    transactions = _fetch_transactions(deps, months_back)
+    if not transactions:
+        return f"No spending data found for the last {months_back} months"
+    category_analysis, monthly_totals, daily_spending, total_spent = _compute_category_stats(transactions)
+    return _build_insights(
+        months_back,
+        transactions,
+        category_analysis,
+        monthly_totals,
+        daily_spending,
+        include_behavioral_insights,
+        total_spent,
+    )
+
+
 BUDGET_SPECIALIST_INSTRUCTIONS = """You are a Budget Specialist - an expert in spending analysis, budget optimization, and financial behavior coaching.
 
 Your expertise includes:
@@ -30,172 +214,6 @@ Your specialty is making budgets work in real life by understanding human behavi
 Always quantify recommendations and show the financial impact of suggested changes."""
 
 
-@function_tool
-async def analyze_spending_patterns(
-    ctx: RunContextWrapper[RunDeps],
-    months_back: int = 6,
-    include_behavioral_insights: bool = True
-) -> str:
-    """Perform deep analysis of spending patterns, trends, and behavioral triggers.
-    
-    Args:
-        months_back: Number of months to analyze
-        include_behavioral_insights: Include behavioral and psychological spending insights
-    """
-    deps = ctx.context
-    cur = deps.db.conn.cursor()
-    
-    # Calculate date range
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=months_back * 30)
-    
-    # Get spending data
-    cur.execute(
-        """SELECT date, description, amount, category
-           FROM transactions 
-           WHERE amount < 0 
-           AND date >= ?
-           ORDER BY date""",
-        (start_date.strftime('%Y-%m-%d'),)
-    )
-    
-    transactions = cur.fetchall()
-    
-    if not transactions:
-        return f"No spending data found for the last {months_back} months"
-    
-    # Analyze by category
-    category_analysis = {}
-    monthly_totals = {}
-    daily_spending = {}
-    
-    for tx in transactions:
-        amount = abs(tx['amount'])
-        category = tx['category'] or 'uncategorized'
-        date_obj = datetime.strptime(tx['date'], '%Y-%m-%d')
-        month_key = date_obj.strftime('%Y-%m')
-        day_key = date_obj.strftime('%A').lower()
-        
-        # Category analysis
-        if category not in category_analysis:
-            category_analysis[category] = {
-                'total': 0,
-                'count': 0,
-                'avg_transaction': 0,
-                'transactions': []
-            }
-        
-        category_analysis[category]['total'] += amount
-        category_analysis[category]['count'] += 1
-        category_analysis[category]['transactions'].append(tx)
-        
-        # Monthly totals
-        monthly_totals[month_key] = monthly_totals.get(month_key, 0) + amount
-        
-        # Day of week analysis
-        daily_spending[day_key] = daily_spending.get(day_key, 0) + amount
-    
-    # Calculate averages
-    for category, data in category_analysis.items():
-        data['avg_transaction'] = data['total'] / data['count'] if data['count'] > 0 else 0
-    
-    # Generate insights
-    results = [f"📊 Spending Pattern Analysis ({months_back} months)\n" + "=" * 50]
-    
-    # Overall summary
-    total_spent = sum(abs(tx['amount']) for tx in transactions)
-    avg_monthly = total_spent / months_back
-    avg_daily = total_spent / (months_back * 30)
-    
-    results.extend([
-        f"💰 SPENDING SUMMARY",
-        f"   Total spent: €{total_spent:.2f}",
-        f"   Monthly average: €{avg_monthly:.2f}",
-        f"   Daily average: €{avg_daily:.2f}",
-        f"   Total transactions: {len(transactions)}"
-    ])
-    
-    # Top spending categories
-    sorted_categories = sorted(category_analysis.items(), key=lambda x: x[1]['total'], reverse=True)
-    
-    results.append(f"\n🏷️ TOP SPENDING CATEGORIES")
-    for i, (category, data) in enumerate(sorted_categories[:5], 1):
-        percentage = (data['total'] / total_spent) * 100
-        results.append(f"   {i}. {category.title()}: €{data['total']:.2f} ({percentage:.1f}%)")
-        results.append(f"      Avg per transaction: €{data['avg_transaction']:.2f}")
-    
-    # Monthly trend analysis
-    if len(monthly_totals) > 1:
-        results.append(f"\n📈 MONTHLY TRENDS")
-        sorted_months = sorted(monthly_totals.items())
-        
-        # Calculate trend
-        monthly_values = [amount for _, amount in sorted_months]
-        trend = "increasing" if monthly_values[-1] > monthly_values[0] else "decreasing"
-        trend_amount = abs(monthly_values[-1] - monthly_values[0])
-        
-        results.append(f"   Trend: {trend} by €{trend_amount:.2f}")
-        
-        for month, amount in sorted_months[-3:]:  # Show last 3 months
-            results.append(f"   {month}: €{amount:.2f}")
-    
-    # Day of week patterns
-    if daily_spending:
-        results.append(f"\n📅 SPENDING BY DAY OF WEEK")
-        sorted_days = sorted(daily_spending.items(), key=lambda x: x[1], reverse=True)
-        
-        days_order = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']
-        for day in days_order:
-            if day in daily_spending:
-                amount = daily_spending[day]
-                percentage = (amount / total_spent) * 100
-                results.append(f"   {day.title()}: €{amount:.2f} ({percentage:.1f}%)")
-    
-    # Behavioral insights
-    if include_behavioral_insights:
-        results.append(f"\n🧠 BEHAVIORAL INSIGHTS")
-        
-        # High spending days
-        weekend_spending = daily_spending.get('saturday', 0) + daily_spending.get('sunday', 0)
-        weekday_spending = total_spent - weekend_spending
-        
-        if weekend_spending > weekday_spending * 0.4:  # Weekend spending > 40% of weekdays
-            results.append("   ⚠️ High weekend spending detected - consider weekend budgets")
-        
-        # Large transaction analysis
-        large_transactions = [tx for tx in transactions if abs(tx['amount']) > avg_daily * 5]
-        if large_transactions:
-            results.append(f"   💸 {len(large_transactions)} unusually large transactions found")
-            results.append("     Consider if these were planned purchases")
-        
-        # Category concentration
-        top_category_pct = (sorted_categories[0][1]['total'] / total_spent) * 100
-        if top_category_pct > 40:
-            results.append(f"   📊 {top_category_pct:.0f}% spent in one category - consider diversification")
-        
-        # Frequency patterns
-        high_frequency_categories = [cat for cat, data in category_analysis.items() if data['count'] > len(transactions) * 0.2]
-        if high_frequency_categories:
-            results.append(f"   🔄 High-frequency categories: {', '.join(high_frequency_categories)}")
-            results.append("     These may be good targets for habit-based budgeting")
-    
-    # Recommendations
-    results.append(f"\n💡 BUDGET OPTIMIZATION RECOMMENDATIONS")
-    
-    # Top category optimization
-    top_category, top_data = sorted_categories[0]
-    potential_reduction = top_data['total'] * 0.15  # 15% reduction
-    results.append(f"   • Reduce {top_category} by 15%: Save €{potential_reduction:.2f}/month")
-    
-    # Subscription analysis recommendation
-    if any('subscription' in tx['description'].lower() for tx in transactions):
-        results.append("   • Run analyze_subscription_value to review recurring payments")
-    
-    # Budget setup recommendations
-    results.append(f"   • Set budgets for top 3 categories to control spending")
-    results.append(f"   • Use suggest_budgets tool for data-driven budget amounts")
-    
-    return "\n".join(results)
 
 
 @function_tool
@@ -491,7 +509,7 @@ def build_budget_agent() -> Agent[RunDeps]:
     return Agent[RunDeps](
         name="BudgetSpecialist", 
         instructions=BUDGET_SPECIALIST_INSTRUCTIONS,
-        model="gpt-5",
+        model="gps-5",
         model_settings=ModelSettings(),
         tools=[
             # Core budget tools

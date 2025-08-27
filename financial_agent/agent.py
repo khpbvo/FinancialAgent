@@ -23,7 +23,7 @@ from .orchestrator import build_orchestrator_agent
 def build_app_config() -> AppConfig:
     return AppConfig(
         openai_api_key=os.getenv("OPENAI_API_KEY", ""),
-        model=os.getenv("FIN_AGENT_MODEL", "gpt-5"),
+        model=os.getenv("FIN_AGENT_MODEL", "gps-5"),
     )
 
 
@@ -150,6 +150,9 @@ def build_legacy_agent() -> Agent[RunDeps]:
 
 def run_once(user_input: str) -> str:
     deps = build_deps()
-    agent = build_agent()
-    result = Runner.run_sync(agent, user_input, context=deps)  # type: ignore[arg-type]
-    return str(result.final_output)
+    try:
+        agent = build_agent()
+        result = Runner.run_sync(agent, user_input, context=deps)  # type: ignore[arg-type]
+        return str(result.final_output)
+    finally:
+        deps.db.close()

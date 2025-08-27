@@ -553,7 +553,7 @@ def build_goal_agent() -> Agent[RunDeps]:
     return Agent[RunDeps](
         name="GoalSpecialist",
         instructions=GOAL_SPECIALIST_INSTRUCTIONS,
-        model="gpt-5",
+        model="gps-5",
         model_settings=ModelSettings(),
         tools=[
             # Core goal tools

@@ -11,7 +11,7 @@ DOCUMENTS_DIR = Path(__file__).parents[1] / "documents"
 class AppConfig(BaseModel):
     """Application configuration with validation."""
     openai_api_key: str = Field(description="OpenAI API key")
-    model: str = Field(default="gpt-5", description="Model to use")
+    model: str = Field(default="gps-5", description="Model to use")
     db_path: Path = Field(default=DEFAULT_DB_PATH, description="Database path")
     documents_dir: Path = Field(default=DOCUMENTS_DIR, description="Documents directory")
     
@@ -114,6 +114,18 @@ class DB:
         cur.execute("CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status)")
         
         self.conn.commit()
+
+    def close(self) -> None:
+        """Close the database connection if it's open."""
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
+    def __enter__(self) -> "DB":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
 
 
 class RunDeps(BaseModel):
