@@ -297,7 +297,7 @@ def build_tax_agent() -> Agent[RunDeps]:
     return Agent[RunDeps](
         name="TaxSpecialist",
         instructions=TAX_SPECIALIST_INSTRUCTIONS,
-        model="gpt-5",  # Use same model as main agent
+        model="gps-5",  # Use same model as main agent
         model_settings=ModelSettings(),
         tools=[
             # Core tax tools

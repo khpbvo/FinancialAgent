@@ -81,7 +81,7 @@ Documents are expected in the `documents/` directory. The system handles:
 
 ## Key Implementation Details
 
-- Model configuration via `FIN_AGENT_MODEL` environment variable (defaults to "gpt-5")
+- Model configuration via `FIN_AGENT_MODEL` environment variable (defaults to "gps-5")
 - OpenAI API key required via `OPENAI_API_KEY` environment variable
 - Database auto-initialization on first run
 - Streaming events handled through async iteration with ResponseTextDeltaEvent

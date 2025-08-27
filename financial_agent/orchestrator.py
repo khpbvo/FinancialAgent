@@ -240,7 +240,7 @@ def build_orchestrator_agent() -> Agent[RunDeps]:
     return Agent[RunDeps](
         name="FinancialOrchestrator",
         instructions=ORCHESTRATOR_INSTRUCTIONS,
-        model="gpt-5",
+        model="gps-5",
         model_settings=ModelSettings(),
         handoffs=[
             build_tax_agent(),
