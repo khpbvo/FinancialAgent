@@ -58,6 +58,61 @@ class DB:
             )
             """
         )
+        
+        # Create budgets table
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS budgets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                category TEXT UNIQUE NOT NULL,
+                amount REAL NOT NULL,
+                period TEXT DEFAULT 'monthly', -- monthly|weekly|yearly
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        
+        # Create financial goals table
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS goals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                target_amount REAL NOT NULL,
+                current_amount REAL DEFAULT 0,
+                target_date TEXT,
+                category TEXT, -- savings|debt_reduction|investment
+                status TEXT DEFAULT 'active', -- active|completed|paused
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        
+        # Create recurring transactions table for detection
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS recurring_transactions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                description_pattern TEXT NOT NULL,
+                amount REAL,
+                frequency TEXT, -- daily|weekly|monthly|yearly
+                category TEXT,
+                last_seen TEXT,
+                confidence REAL DEFAULT 0.0,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
+            """
+        )
+        
+        # Add indexes for performance
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_transactions_amount ON transactions(amount)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_budgets_category ON budgets(category)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status)")
+        
         self.conn.commit()
 
 

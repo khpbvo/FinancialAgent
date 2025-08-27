@@ -13,6 +13,11 @@ from .tools.pdf_ingest import ingest_pdfs
 from .tools.memory import list_memories
 from .tools.summarize import summarize_file, summarize_overview
 from .tools.records import add_transaction
+from .tools.budgets import set_budget, check_budget, list_budgets, suggest_budgets, delete_budget
+from .tools.goals import create_goal, update_goal_progress, check_goals, suggest_savings_plan, complete_goal, pause_goal
+from .tools.recurring import detect_recurring, list_subscriptions, analyze_subscription_value, predict_next_recurring
+from .tools.export import export_transactions, generate_tax_report, export_budget_report, export_recurring_payments
+from .orchestrator import build_orchestrator_agent
 
 
 def build_app_config() -> AppConfig:
@@ -48,8 +53,14 @@ def dynamic_instructions(context: RunContextWrapper[RunDeps], agent: Agent[RunDe
     mem_count = cur.fetchone()["count"]
     
     base_instructions = (
-        "You are a financial assistant. You can ingest CSV files, list/search transactions, "
-        "and provide expert analysis and advice grounded in the user's stored data. "
+        "You are a financial assistant with advanced capabilities:\n"
+        "• Ingest CSV/PDF files and manage transactions\n"
+        "• Set and track budgets with spending alerts\n"
+        "• Create and monitor financial goals (savings, debt reduction)\n"
+        "• Detect recurring transactions and subscriptions automatically\n"
+        "• Export data to CSV/Excel/PDF for reports and tax preparation\n"
+        "• Generate professional tax reports with categorized deductions\n"
+        "• Provide expert analysis and personalized financial advice\n"
         "When giving advice, be concise and quantify when possible."
     )
     
@@ -70,7 +81,21 @@ def dynamic_instructions(context: RunContextWrapper[RunDeps], agent: Agent[RunDe
     return base_instructions
 
 
-def build_agent() -> Agent[RunDeps]:
+def build_agent(use_orchestrator: bool = True) -> Agent[RunDeps]:
+    """Build the main financial agent.
+    
+    Args:
+        use_orchestrator: If True, use the orchestrator with specialist handoffs.
+                         If False, use the original monolithic agent.
+    """
+    if use_orchestrator:
+        return build_orchestrator_agent()
+    
+    # Original monolithic agent (kept for backwards compatibility)
+    return build_legacy_agent()
+
+
+def build_legacy_agent() -> Agent[RunDeps]:
 
     # Create minimal ModelSettings for GPT-5 compatibility 
     # GPT-5 doesn't support max_tokens, temperature, or many other parameters
@@ -84,11 +109,37 @@ def build_agent() -> Agent[RunDeps]:
         # Stop immediately after these tools to avoid unnecessary LLM calls
         tool_use_behavior=StopAtTools(stop_at_tool_names=["add_transaction", "ingest_csv", "ingest_pdfs"]),
         tools=[
+            # Ingestion tools
             ingest_csv,
             ingest_pdfs,
+            # Query tools
             list_recent_transactions,
             search_transactions,
             list_memories,
+            # Budget tools
+            set_budget,
+            check_budget,
+            list_budgets,
+            suggest_budgets,
+            delete_budget,
+            # Goal tracking tools
+            create_goal,
+            update_goal_progress,
+            check_goals,
+            suggest_savings_plan,
+            complete_goal,
+            pause_goal,
+            # Recurring transaction tools
+            detect_recurring,
+            list_subscriptions,
+            analyze_subscription_value,
+            predict_next_recurring,
+            # Export tools
+            export_transactions,
+            generate_tax_report,
+            export_budget_report,
+            export_recurring_payments,
+            # Analysis tools
             analyze_and_advise,
             summarize_file,
             summarize_overview,
