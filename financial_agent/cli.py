@@ -11,7 +11,9 @@ from pathlib import Path
 
 from .agent import build_agent, build_deps
 
-
+# Centralized descriptions for all tools exposed by the agent. Keeping this
+# mapping in a single place avoids duplication between interactive and
+# streaming modes and makes maintenance easier when new tools are added.
 TOOL_DESCRIPTIONS = {
     # Core tools
     "ingest_csv": "📊 Processing CSV file",
@@ -149,7 +151,6 @@ Available commands:
                         
                         tool_name = tool_name or 'Unknown Tool'
                         
-                        # Use global tool descriptions
                         desc = TOOL_DESCRIPTIONS.get(tool_name, f"🔧 Using tool: {tool_name}")
                         print(f"\n{desc}")
                     elif event.item.type == "tool_call_output_item":
@@ -226,7 +227,6 @@ async def streaming_mode(agent, deps, user_input: str, use_session: bool = False
                 
                 tool_name = tool_name or 'Unknown Tool'
                 
-                # Use global tool descriptions
                 desc = TOOL_DESCRIPTIONS.get(tool_name, f"🔧 Using tool: {tool_name}")
                 print(f"\n{desc}")
             elif event.item.type == "tool_call_output_item":
@@ -263,34 +263,36 @@ def main() -> None:
 
     deps = build_deps()
     agent = build_agent()
+    try:
+        if args.bootstrap:
+            # quick ingestion pass
+            from .bootstrap import bootstrap_documents
+            print("📁 Bootstrapping documents...")
+            result = bootstrap_documents()
+            print(result)
+            return
 
-    if args.bootstrap:
-        # quick ingestion pass
-        from .bootstrap import bootstrap_documents
-        print("📁 Bootstrapping documents...")
-        result = bootstrap_documents()
-        print(result)
-        return
+        # Interactive mode - default if no specific input
+        use_session = not args.no_session
 
-    # Interactive mode - default if no specific input
-    use_session = not args.no_session
-    
-    if args.interactive or (not args.input and not args.stream):
-        asyncio.run(interactive_mode(agent, deps, use_session=use_session))
-    elif args.stream:
-        # Streaming mode for single command
-        user_input = args.input or "Analyze my recent spending."
-        asyncio.run(streaming_mode(agent, deps, user_input, use_session=use_session))
-    else:
-        # Non-streaming mode for single command
-        if use_session:
-            session_db_path = Path.home() / ".financial_agent" / "sessions.db"
-            session_db_path.parent.mkdir(parents=True, exist_ok=True)
-            session = SQLiteSession("cli_session", str(session_db_path))
-            result = Runner.run_sync(agent, args.input, context=deps, session=session)
+        if args.interactive or (not args.input and not args.stream):
+            asyncio.run(interactive_mode(agent, deps, use_session=use_session))
+        elif args.stream:
+            # Streaming mode for single command
+            user_input = args.input or "Analyze my recent spending."
+            asyncio.run(streaming_mode(agent, deps, user_input, use_session=use_session))
         else:
-            result = Runner.run_sync(agent, args.input, context=deps)
-        print(result.final_output)
+            # Non-streaming mode for single command
+            if use_session:
+                session_db_path = Path.home() / ".financial_agent" / "sessions.db"
+                session_db_path.parent.mkdir(parents=True, exist_ok=True)
+                session = SQLiteSession("cli_session", str(session_db_path))
+                result = Runner.run_sync(agent, args.input, context=deps, session=session)
+            else:
+                result = Runner.run_sync(agent, args.input, context=deps)
+            print(result.final_output)
+    finally:
+        deps.db.close()
 
 if __name__ == "__main__":
     main()

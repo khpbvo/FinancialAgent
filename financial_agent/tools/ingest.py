@@ -6,7 +6,6 @@ from typing import Any, Iterable
 import csv
 
 from agents import RunContextWrapper, function_tool
-from typing import Any
 
 from ..context import RunDeps
 from ..db.sql import INSERT_TRANSACTION
@@ -14,6 +13,8 @@ from ..db.sql import INSERT_TRANSACTION
 
 @dataclass
 class CSVMap:
+    """Mapping configuration for custom CSV column names."""
+
     date_col: str
     description_col: str
     amount_col: str
@@ -49,10 +50,17 @@ def _parse_amount(value: str) -> float:
         return 0.0
 
 
-def process_csv_file(deps: RunDeps, csv_path: Path) -> int:
-    """Programmatic CSV ingestion with heuristics for ING exports.
+def process_csv_file(deps: RunDeps, csv_path: Path, csv_map: CSVMap | None = None) -> int:
+    """Programmatic CSV ingestion with optional column mapping.
 
-    Returns number of inserted rows.
+    Args:
+        deps: Application dependencies
+        csv_path: Path to the CSV file
+        csv_map: Optional mapping for custom CSV formats. If omitted, ING
+            exports are auto-detected and default column names are used.
+
+    Returns:
+        Number of inserted rows.
     """
     inserted = 0
     with open(csv_path, newline="", encoding="utf-8") as f:
@@ -61,10 +69,19 @@ def process_csv_file(deps: RunDeps, csv_path: Path) -> int:
         cur = deps.db.conn.cursor()
 
         # Detect ING NL export
-        is_ing = {"Datum", "Naam / Omschrijving", "Bedrag (EUR)", "Af Bij"}.issubset(set(headers))
+        is_ing = (
+            csv_map is None
+            and {"Datum", "Naam / Omschrijving", "Bedrag (EUR)", "Af Bij"}.issubset(set(headers))
+        )
 
         for row in reader:
-            if is_ing:
+            if csv_map:
+                date = _parse_date(row.get(csv_map.date_col, ""), csv_map.date_format)
+                desc = row.get(csv_map.description_col, "")
+                amount = _parse_amount(row.get(csv_map.amount_col, "0"))
+                currency = row.get(csv_map.currency_col) if csv_map.currency_col else None
+                category = row.get(csv_map.category_col) if csv_map.category_col else None
+            elif is_ing:
                 # ING specifics
                 raw_date = row.get("Datum", "")
                 date = _parse_date(raw_date, "%Y%m%d")
@@ -85,14 +102,17 @@ def process_csv_file(deps: RunDeps, csv_path: Path) -> int:
                 currency = row.get("currency")
                 category = row.get("category")
 
-            cur.execute(INSERT_TRANSACTION, (date, desc, amount, currency, category, str(csv_path.name)))
+            cur.execute(
+                INSERT_TRANSACTION,
+                (date, desc, amount, currency, category, str(csv_path.name)),
+            )
             inserted += 1
     deps.db.conn.commit()
     return inserted
 
 
-def ingest_csv_file(deps: RunDeps, csv_path: Path) -> str:
-    inserted = process_csv_file(deps, csv_path)
+def ingest_csv_file(deps: RunDeps, csv_path: Path, csv_map: CSVMap | None = None) -> str:
+    inserted = process_csv_file(deps, csv_path, csv_map)
     return f"Ingested {inserted} transactions from {csv_path.name}"
 
 
@@ -106,12 +126,28 @@ def csv_error_handler(context: RunContextWrapper[Any], error: Exception) -> str:
         return f"Failed to ingest CSV: {str(error)}. Please verify the file format is correct."
 
 @function_tool(failure_error_function=csv_error_handler)
-def ingest_csv(ctx: RunContextWrapper[RunDeps], path: str) -> str:
+def ingest_csv(
+    ctx: RunContextWrapper[RunDeps],
+    path: str,
+    csv_map: CSVMap | None = None,
+) -> str:
     """Ingest a CSV file of transactions into the database.
 
     Args:
         path: Absolute or relative path to CSV.
-    Note: The tool auto-detects ING CSVs; otherwise it expects columns: date, description, amount, [currency], [category]
+        csv_map: Optional mapping configuration for custom bank exports.
+
+    Example:
+        >>> csv_map = CSVMap(
+        ...     date_col="Datum",
+        ...     description_col="Omschrijving",
+        ...     amount_col="Bedrag",
+        ...     date_format="%d-%m-%Y",
+        ... )
+        >>> ingest_csv(ctx, "mybank.csv", csv_map)
+
+    Note: If no mapping is provided, ING CSVs are auto-detected; otherwise the
+    CSV must contain columns: date, description, amount, [currency], [category].
     """
     deps = ctx.context
     csv_path = Path(path)
@@ -119,4 +155,4 @@ def ingest_csv(ctx: RunContextWrapper[RunDeps], path: str) -> str:
         csv_path = deps.config.documents_dir / csv_path
     if not csv_path.exists():
         return f"CSV not found: {csv_path}"
-    return ingest_csv_file(deps, csv_path)
+    return ingest_csv_file(deps, csv_path, csv_map)

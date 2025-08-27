@@ -115,6 +115,18 @@ class DB:
         
         self.conn.commit()
 
+    def close(self) -> None:
+        """Close the database connection if it's open."""
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
+    def __enter__(self) -> "DB":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
 
 class RunDeps(BaseModel):
     """Runtime dependencies with validation."""

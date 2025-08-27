@@ -150,6 +150,9 @@ def build_legacy_agent() -> Agent[RunDeps]:
 
 def run_once(user_input: str) -> str:
     deps = build_deps()
-    agent = build_agent()
-    result = Runner.run_sync(agent, user_input, context=deps)  # type: ignore[arg-type]
-    return str(result.final_output)
+    try:
+        agent = build_agent()
+        result = Runner.run_sync(agent, user_input, context=deps)  # type: ignore[arg-type]
+        return str(result.final_output)
+    finally:
+        deps.db.close()
