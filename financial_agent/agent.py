@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import Any
+from typing import Any, Generator
+from contextlib import contextmanager
 import os
 
 from agents import Agent, ModelSettings, Runner, set_default_openai_key, RunContextWrapper
@@ -27,17 +28,18 @@ def build_app_config() -> AppConfig:
     )
 
 
-def build_deps() -> RunDeps:
+@contextmanager
+def build_deps() -> Generator[RunDeps, None, None]:
     cfg = build_app_config()
     if cfg.openai_api_key:
         try:
             set_default_openai_key(cfg.openai_api_key)
         except Exception:
             pass
-    db = DB(cfg.db_path)
-    deps = RunDeps(config=cfg, db=db)
-    deps.ensure_ready()
-    return deps
+    with DB(cfg.db_path) as db:
+        deps = RunDeps(config=cfg, db=db)
+        deps.ensure_ready()
+        yield deps
 
 
 def dynamic_instructions(context: RunContextWrapper[RunDeps], agent: Agent[RunDeps]) -> str:
@@ -149,10 +151,7 @@ def build_legacy_agent() -> Agent[RunDeps]:
 
 
 def run_once(user_input: str) -> str:
-    deps = build_deps()
-    try:
+    with build_deps() as deps:
         agent = build_agent()
         result = Runner.run_sync(agent, user_input, context=deps)  # type: ignore[arg-type]
         return str(result.final_output)
-    finally:
-        deps.db.close()

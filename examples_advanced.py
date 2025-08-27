@@ -5,7 +5,7 @@ from datetime import datetime
 import os
 
 from agents import Runner, RunContextWrapper
-from financial_agent.context import build_deps
+from financial_agent.agent import build_deps
 from financial_agent.advanced_agent import build_advanced_agent
 from financial_agent.document_agents import (
     build_document_orchestrator,
@@ -45,26 +45,25 @@ async def example_advanced_agent():
         tool_choice_mode="critical"  # Forces data ingestion when DB is empty
     )
     
-    deps = build_deps()
-    
-    # Run with PII protection (guardrails will catch this)
-    try:
+    with build_deps() as deps:
+        # Run with PII protection (guardrails will catch this)
+        try:
+            result = await Runner.run(
+                agent,
+                input="My SSN is 123-45-6789, can you analyze my spending?",
+                context=deps
+            )
+            print(f"Result: {result.final_output}")
+        except Exception as e:
+            print(f"Guardrail caught PII: {e}")
+
+        # Run with web search for real-time data
         result = await Runner.run(
             agent,
-            input="My SSN is 123-45-6789, can you analyze my spending?",
+            input="What's the current EUR to USD exchange rate and how does it affect my budget?",
             context=deps
         )
-        print(f"Result: {result.final_output}")
-    except Exception as e:
-        print(f"Guardrail caught PII: {e}")
-    
-    # Run with web search for real-time data
-    result = await Runner.run(
-        agent,
-        input="What's the current EUR to USD exchange rate and how does it affect my budget?",
-        context=deps
-    )
-    print(f"\nWeb Search Result: {result.final_output}")
+        print(f"\nWeb Search Result: {result.final_output}")
 
 
 async def example_document_agents():
@@ -73,37 +72,37 @@ async def example_document_agents():
     print("Example: Document Analysis Agents")
     print("=" * 60)
     
-    deps = build_deps()
-    ctx = RunContextWrapper(deps)
-    
-    # Analyze a CSV file with the specialized agent
-    csv_path = deps.config.documents_dir / "sample_transactions.csv"
-    if csv_path.exists():
-        csv_result = await analyze_csv_with_agent(ctx, str(csv_path))
-        print(f"\nCSV Analysis:")
-        print(f"  File: {csv_result.file_name}")
-        print(f"  Rows: {csv_result.row_count}")
-        print(f"  Categories: {', '.join(csv_result.categories_found)}")
-        print(f"  Errors: {len(csv_result.parsing_errors)}")
-    
-    # Analyze a PDF with the specialized agent
-    pdf_path = deps.config.documents_dir / "bank_statement.pdf"
-    if pdf_path.exists():
-        pdf_result = await analyze_pdf_with_agent(ctx, str(pdf_path))
-        print(f"\nPDF Analysis:")
-        print(f"  File: {pdf_result.file_name}")
-        print(f"  Pages: {pdf_result.page_count}")
-        print(f"  Transactions: {pdf_result.transactions_found}")
-        print(f"  Confidence: {pdf_result.extraction_confidence:.1%}")
-    
-    # Use the orchestrator for complex document analysis
-    orchestrator = build_document_orchestrator()
-    result = await Runner.run(
-        orchestrator,
-        input="Analyze all CSV and PDF files in the documents folder and give me a summary",
-        context=deps
-    )
-    print(f"\nOrchestrator Result: {result.final_output}")
+    with build_deps() as deps:
+        ctx = RunContextWrapper(deps)
+
+        # Analyze a CSV file with the specialized agent
+        csv_path = deps.config.documents_dir / "sample_transactions.csv"
+        if csv_path.exists():
+            csv_result = await analyze_csv_with_agent(ctx, str(csv_path))
+            print(f"\nCSV Analysis:")
+            print(f"  File: {csv_result.file_name}")
+            print(f"  Rows: {csv_result.row_count}")
+            print(f"  Categories: {', '.join(csv_result.categories_found)}")
+            print(f"  Errors: {len(csv_result.parsing_errors)}")
+
+        # Analyze a PDF with the specialized agent
+        pdf_path = deps.config.documents_dir / "bank_statement.pdf"
+        if pdf_path.exists():
+            pdf_result = await analyze_pdf_with_agent(ctx, str(pdf_path))
+            print(f"\nPDF Analysis:")
+            print(f"  File: {pdf_result.file_name}")
+            print(f"  Pages: {pdf_result.page_count}")
+            print(f"  Transactions: {pdf_result.transactions_found}")
+            print(f"  Confidence: {pdf_result.extraction_confidence:.1%}")
+
+        # Use the orchestrator for complex document analysis
+        orchestrator = build_document_orchestrator()
+        result = await Runner.run(
+            orchestrator,
+            input="Analyze all CSV and PDF files in the documents folder and give me a summary",
+            context=deps
+        )
+        print(f"\nOrchestrator Result: {result.final_output}")
 
 
 async def example_batch_processing():
@@ -112,27 +111,27 @@ async def example_batch_processing():
     print("Example: Batch Document Processing")
     print("=" * 60)
     
-    deps = build_deps()
-    processor = BatchDocumentProcessor(deps)
-    
-    # Find all CSV and PDF files
-    csv_files = list(deps.config.documents_dir.glob("*.csv"))
-    pdf_files = list(deps.config.documents_dir.glob("*.pdf"))
-    
-    if csv_files or pdf_files:
-        print(f"Processing {len(csv_files)} CSV and {len(pdf_files)} PDF files...")
-        
-        results = await processor.process_batch(csv_files, pdf_files)
-        
-        print(f"\nBatch Processing Results:")
-        print(f"  CSV processed: {results['csv_processed']}")
-        print(f"  PDF processed: {results['pdf_processed']}")
-        print(f"  Total: {results['total_processed']}")
-        
-        if results['errors']:
-            print(f"  Errors: {len(results['errors'])}")
-            for error in results['errors'][:3]:  # Show first 3 errors
-                print(f"    - {error}")
+    with build_deps() as deps:
+        processor = BatchDocumentProcessor(deps)
+
+        # Find all CSV and PDF files
+        csv_files = list(deps.config.documents_dir.glob("*.csv"))
+        pdf_files = list(deps.config.documents_dir.glob("*.pdf"))
+
+        if csv_files or pdf_files:
+            print(f"Processing {len(csv_files)} CSV and {len(pdf_files)} PDF files...")
+
+            results = await processor.process_batch(csv_files, pdf_files)
+
+            print(f"\nBatch Processing Results:")
+            print(f"  CSV processed: {results['csv_processed']}")
+            print(f"  PDF processed: {results['pdf_processed']}")
+            print(f"  Total: {results['total_processed']}")
+
+            if results['errors']:
+                print(f"  Errors: {len(results['errors'])}")
+                for error in results['errors'][:3]:  # Show first 3 errors
+                    print(f"    - {error}")
 
 
 async def example_validated_tools():
@@ -141,62 +140,62 @@ async def example_validated_tools():
     print("Example: Validated Tools")
     print("=" * 60)
     
-    deps = build_deps()
-    ctx = RunContextWrapper(deps)
-    
-    # Search with validated parameters
-    search_params: TransactionSearchParams = {
-        "keyword": "grocery",
-        "min_amount": 10.0,
-        "max_amount": 100.0,
-        "start_date": "2024-01-01",
-        "end_date": "2024-12-31",
-        "limit": 10
-    }
-    
-    results = await search_transactions_validated(ctx, search_params)
-    print(f"\nSearch Results: {results.count} transactions, total: €{results.total_amount:.2f}")
-    
-    # Add transaction with validation
-    new_transaction = TransactionAddParams(
-        date="2024-12-25",
-        description="Christmas shopping",
-        amount=-250.00,
-        currency="EUR",
-        category="Shopping",
-        tags=["holiday", "gifts", "christmas"]
-    )
-    
-    result = await add_validated_transaction(ctx, new_transaction)
-    print(f"\nAdd Transaction: {result}")
-    
-    # Create budget with validation
-    budget = BudgetCreationParams(
-        monthly_income=5000.0,
-        fixed_expenses=[
-            CategoryBudget(category="Rent", amount=1500.0, is_essential=True),
-            CategoryBudget(category="Utilities", amount=200.0, is_essential=True),
-            CategoryBudget(category="Food", amount=600.0, is_essential=True, can_reduce_by=10.0),
-            CategoryBudget(category="Transport", amount=300.0, is_essential=False, can_reduce_by=25.0),
-        ],
-        savings_goal_percentage=20.0,
-        budget_period="monthly",
-        strict_mode=True
-    )
-    
-    result = await create_budget_validated(ctx, budget)
-    print(f"\nBudget Creation:\n{result}")
-    
-    # Analyze spending with parameters
-    analysis_params: AnalysisParams = {
-        "period": "monthly",
-        "group_by": "category",
-        "output_format": "summary",
-        "min_transaction_amount": 5.0
-    }
-    
-    result = await analyze_spending_validated(ctx, analysis_params)
-    print(f"\nSpending Analysis:\n{result}")
+    with build_deps() as deps:
+        ctx = RunContextWrapper(deps)
+
+        # Search with validated parameters
+        search_params: TransactionSearchParams = {
+            "keyword": "grocery",
+            "min_amount": 10.0,
+            "max_amount": 100.0,
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31",
+            "limit": 10
+        }
+
+        results = await search_transactions_validated(ctx, search_params)
+        print(f"\nSearch Results: {results.count} transactions, total: €{results.total_amount:.2f}")
+
+        # Add transaction with validation
+        new_transaction = TransactionAddParams(
+            date="2024-12-25",
+            description="Christmas shopping",
+            amount=-250.00,
+            currency="EUR",
+            category="Shopping",
+            tags=["holiday", "gifts", "christmas"]
+        )
+
+        result = await add_validated_transaction(ctx, new_transaction)
+        print(f"\nAdd Transaction: {result}")
+
+        # Create budget with validation
+        budget = BudgetCreationParams(
+            monthly_income=5000.0,
+            fixed_expenses=[
+                CategoryBudget(category="Rent", amount=1500.0, is_essential=True),
+                CategoryBudget(category="Utilities", amount=200.0, is_essential=True),
+                CategoryBudget(category="Food", amount=600.0, is_essential=True, can_reduce_by=10.0),
+                CategoryBudget(category="Transport", amount=300.0, is_essential=False, can_reduce_by=25.0),
+            ],
+            savings_goal_percentage=20.0,
+            budget_period="monthly",
+            strict_mode=True
+        )
+
+        result = await create_budget_validated(ctx, budget)
+        print(f"\nBudget Creation:\n{result}")
+
+        # Analyze spending with parameters
+        analysis_params: AnalysisParams = {
+            "period": "monthly",
+            "group_by": "category",
+            "output_format": "summary",
+            "min_transaction_amount": 5.0
+        }
+
+        result = await analyze_spending_validated(ctx, analysis_params)
+        print(f"\nSpending Analysis:\n{result}")
 
 
 async def example_session_management():
@@ -264,64 +263,64 @@ async def example_combined_workflow():
     print("=" * 60)
     
     # Initialize components
-    deps = build_deps()
-    session_manager = FinancialSessionManager(backend=StorageBackend.SQLITE)
-    agent = build_advanced_agent(
-        enable_web_search=True,
-        enable_guardrails=True,
-        enable_hooks=True
-    )
-    
-    session_id = f"workflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    
-    # Step 1: Analyze documents
-    print("\n1. Analyzing documents...")
-    processor = BatchDocumentProcessor(deps)
-    csv_files = list(deps.config.documents_dir.glob("*.csv"))[:2]  # Limit to 2 files
-    
-    if csv_files:
-        doc_results = await processor.process_batch(csv_files, [])
-        print(f"   Processed {doc_results['total_processed']} documents")
-    
-    # Step 2: Create validated budget
-    print("\n2. Creating budget...")
-    ctx = RunContextWrapper(deps)
-    budget = BudgetCreationParams(
-        monthly_income=4000.0,
-        fixed_expenses=[
-            CategoryBudget(category="Housing", amount=1200.0),
-            CategoryBudget(category="Food", amount=500.0),
-        ],
-        savings_goal_percentage=15.0
-    )
-    budget_result = await create_budget_validated(ctx, budget)
-    
-    # Step 3: Run agent with context
-    print("\n3. Getting financial advice...")
-    context = await session_manager.get_context(session_id, max_messages=5)
-    
-    result = await Runner.run(
-        agent,
-        input="Based on my budget and recent transactions, what should I focus on?",
-        context=deps
-    )
-    
-    # Save interaction
-    await session_manager.save_interaction(
-        session_id=session_id,
-        user_input="Based on my budget and recent transactions, what should I focus on?",
-        agent_response=str(result.final_output),
-        metadata={"workflow": "combined", "step": 3}
-    )
-    
-    print(f"\nAdvice: {result.final_output}")
-    
-    # Step 4: Export session
-    print("\n4. Exporting session...")
-    export = await session_manager.export_session(session_id, format="json")
-    export_path = Path(f"session_export_{session_id}.json")
-    export_path.write_text(export)
-    print(f"   Session exported to {export_path}")
+    with build_deps() as deps:
+        session_manager = FinancialSessionManager(backend=StorageBackend.SQLITE)
+        agent = build_advanced_agent(
+            enable_web_search=True,
+            enable_guardrails=True,
+            enable_hooks=True
+        )
+
+        session_id = f"workflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+        # Step 1: Analyze documents
+        print("\n1. Analyzing documents...")
+        processor = BatchDocumentProcessor(deps)
+        csv_files = list(deps.config.documents_dir.glob("*.csv"))[:2]  # Limit to 2 files
+
+        if csv_files:
+            doc_results = await processor.process_batch(csv_files, [])
+            print(f"   Processed {doc_results['total_processed']} documents")
+
+        # Step 2: Create validated budget
+        print("\n2. Creating budget...")
+        ctx = RunContextWrapper(deps)
+        budget = BudgetCreationParams(
+            monthly_income=4000.0,
+            fixed_expenses=[
+                CategoryBudget(category="Housing", amount=1200.0),
+                CategoryBudget(category="Food", amount=500.0),
+            ],
+            savings_goal_percentage=15.0
+        )
+        budget_result = await create_budget_validated(ctx, budget)
+
+        # Step 3: Run agent with context
+        print("\n3. Getting financial advice...")
+        context = await session_manager.get_context(session_id, max_messages=5)
+
+        result = await Runner.run(
+            agent,
+            input="Based on my budget and recent transactions, what should I focus on?",
+            context=deps
+        )
+
+        # Save interaction
+        await session_manager.save_interaction(
+            session_id=session_id,
+            user_input="Based on my budget and recent transactions, what should I focus on?",
+            agent_response=str(result.final_output),
+            metadata={"workflow": "combined", "step": 3}
+        )
+
+        print(f"\nAdvice: {result.final_output}")
+
+        # Step 4: Export session
+        print("\n4. Exporting session...")
+        export = await session_manager.export_session(session_id, format="json")
+        export_path = Path(f"session_export_{session_id}.json")
+        export_path.write_text(export)
+        print(f"   Session exported to {export_path}")
 
 
 async def main():
