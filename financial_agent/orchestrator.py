@@ -5,7 +5,10 @@ from .context import RunDeps
 from .specialists.tax_agent import build_tax_agent
 from .specialists.budget_agent import build_budget_agent  
 from .specialists.goal_agent import build_goal_agent
+from .specialists.investment_agent import build_investment_agent
+from .specialists.debt_agent import build_debt_agent
 from .tools.ingest import ingest_csv
+from .tools.excel_ingest import ingest_excel, list_excel_sheets
 from .tools.query import list_recent_transactions, search_transactions
 from .tools.pdf_ingest import ingest_pdfs
 from .tools.memory import list_memories
@@ -18,7 +21,7 @@ ORCHESTRATOR_INSTRUCTIONS = """You are the Financial Agent Orchestrator - the in
 
 Your role is to:
 • Understand user requests and determine which specialist(s) can best help
-• Route complex queries to the appropriate specialist agents
+• Route complex queries to the appropriate specialist agents  
 • Coordinate multiple agents for comprehensive financial advice
 • Handle general queries and data ingestion directly
 • Synthesize insights from multiple specialists when needed
@@ -27,12 +30,16 @@ Specialist Agents Available:
 1. **Tax Specialist** - Tax optimization, deductions, compliance, tax reports
 2. **Budget Specialist** - Spending analysis, budget management, subscription optimization
 3. **Goal Specialist** - Financial planning, savings goals, motivation coaching
+4. **Investment Specialist** - Portfolio analysis, investment readiness, wealth building
+5. **Debt Specialist** - Debt elimination, consolidation, credit improvement
 
 Routing Guidelines:
 • Tax questions → Tax Specialist
 • Budget, spending, subscription questions → Budget Specialist  
 • Financial goals, savings plans, motivation → Goal Specialist
-• Data ingestion (CSV/PDF) → Handle directly
+• Investment, portfolio, wealth building → Investment Specialist
+• Debt, loans, credit questions → Debt Specialist
+• Data ingestion (CSV/PDF/Excel) → Handle directly
 • Multi-domain questions → Use multiple specialists and synthesize
 
 Key principles:
@@ -41,8 +48,16 @@ Key principles:
 - When in doubt, explain options and let user choose
 - Always provide specific, actionable advice
 - Coordinate specialists for comprehensive planning
+- Use multi-specialist analysis for complex financial situations
+- Synthesize specialist recommendations into coherent action plans
 
-You have access to core tools for data management and can handoff to specialists for advanced analysis."""
+You have access to core tools for data management and can handoff to specialists for advanced analysis.
+
+COORDINATION NOTES:
+- For holistic financial planning: combine Goal + Investment + Tax specialists
+- For debt-to-wealth transitions: coordinate Debt + Investment + Goal specialists  
+- For spending optimization: combine Budget + Tax specialists
+- Always consider tax implications when coordinating Investment or Goal specialists"""
 
 
 @function_tool
@@ -133,6 +148,64 @@ async def handoff_to_goal_specialist(
 
 
 @function_tool
+async def handoff_to_investment_specialist(
+    ctx: RunContextWrapper[RunDeps],
+    user_query: str,
+    additional_context: Optional[str] = None
+) -> str:
+    """Handoff investment and portfolio queries to the Investment Specialist agent.
+    
+    Args:
+        user_query: The user's investment-related question or request
+        additional_context: Any additional context to provide to the specialist
+    """
+    deps = ctx.context
+    
+    # Build investment specialist
+    investment_agent = build_investment_agent()
+    
+    # Prepare query with context
+    full_query = user_query
+    if additional_context:
+        full_query += f"\n\nAdditional context: {additional_context}"
+    
+    # Run the specialist agent
+    result = await Runner.run(investment_agent, full_query, context=deps)
+    
+    # Return with specialist attribution
+    return f"📈 **Investment Specialist Response:**\n\n{result.final_output}"
+
+
+@function_tool
+async def handoff_to_debt_specialist(
+    ctx: RunContextWrapper[RunDeps],
+    user_query: str,
+    additional_context: Optional[str] = None
+) -> str:
+    """Handoff debt and loan queries to the Debt Management Specialist agent.
+    
+    Args:
+        user_query: The user's debt-related question or request
+        additional_context: Any additional context to provide to the specialist
+    """
+    deps = ctx.context
+    
+    # Build debt specialist
+    debt_agent = build_debt_agent()
+    
+    # Prepare query with context
+    full_query = user_query
+    if additional_context:
+        full_query += f"\n\nAdditional context: {additional_context}"
+    
+    # Run the specialist agent
+    result = await Runner.run(debt_agent, full_query, context=deps)
+    
+    # Return with specialist attribution
+    return f"💳 **Debt Specialist Response:**\n\n{result.final_output}"
+
+
+@function_tool
 async def coordinate_multi_specialist_analysis(
     ctx: RunContextWrapper[RunDeps],
     user_query: str,
@@ -170,6 +243,18 @@ async def coordinate_multi_specialist_analysis(
         results.append(f"\n🎯 **Goal Specialist Perspective:**")
         results.append(str(goal_result.final_output))
     
+    if "investment" in specialists_needed:
+        investment_agent = build_investment_agent()
+        investment_result = await Runner.run(investment_agent, user_query, context=deps)
+        results.append(f"\n📈 **Investment Specialist Perspective:**")
+        results.append(str(investment_result.final_output))
+    
+    if "debt" in specialists_needed:
+        debt_agent = build_debt_agent()
+        debt_result = await Runner.run(debt_agent, user_query, context=deps)
+        results.append(f"\n💳 **Debt Specialist Perspective:**")
+        results.append(str(debt_result.final_output))
+    
     # Synthesize recommendations
     results.append(f"\n🔄 **Coordinated Recommendations:**")
     results.append("Based on all specialist inputs:")
@@ -201,13 +286,33 @@ def analyze_query_intent(user_query: str) -> Dict[str, any]:
         'emergency fund', 'retirement', 'motivation', 'progress'
     ]
     
+    investment_keywords = [
+        'invest', 'investment', 'portfolio', 'stock', 'bond', 'etf',
+        'index fund', 'wealth', 'compound', 'return', 'dividend',
+        'asset allocation', 'diversification', 'risk'
+    ]
+    
+    debt_keywords = [
+        'debt', 'loan', 'credit', 'payoff', 'consolidation', 'interest',
+        'mortgage', 'student loan', 'credit card', 'payment', 'balance',
+        'refinance', 'snowball', 'avalanche'
+    ]
+    
     # Score each category
     tax_score = sum(1 for keyword in tax_keywords if keyword in query_lower)
     budget_score = sum(1 for keyword in budget_keywords if keyword in query_lower)
     goal_score = sum(1 for keyword in goal_keywords if keyword in query_lower)
+    investment_score = sum(1 for keyword in investment_keywords if keyword in query_lower)
+    debt_score = sum(1 for keyword in debt_keywords if keyword in query_lower)
     
     # Determine primary intent
-    scores = {'tax': tax_score, 'budget': budget_score, 'goal': goal_score}
+    scores = {
+        'tax': tax_score, 
+        'budget': budget_score, 
+        'goal': goal_score,
+        'investment': investment_score,
+        'debt': debt_score
+    }
     primary_intent = max(scores, key=scores.get) if max(scores.values()) > 0 else 'general'
     
     # Check for multi-specialist needs
@@ -218,6 +323,10 @@ def analyze_query_intent(user_query: str) -> Dict[str, any]:
         specialists_needed.append('budget')
     if goal_score > 0:
         specialists_needed.append('goal')
+    if investment_score > 0:
+        specialists_needed.append('investment')
+    if debt_score > 0:
+        specialists_needed.append('debt')
     
     is_multi_specialist = len(specialists_needed) > 1
     
@@ -245,17 +354,23 @@ def build_orchestrator_agent() -> Agent[RunDeps]:
         handoffs=[
             build_tax_agent(),
             build_budget_agent(),
-            build_goal_agent()
+            build_goal_agent(),
+            build_investment_agent(),
+            build_debt_agent()
         ],
         tools=[
             # Handoff tools
             handoff_to_tax_specialist,
             handoff_to_budget_specialist,
             handoff_to_goal_specialist,
+            handoff_to_investment_specialist,
+            handoff_to_debt_specialist,
             coordinate_multi_specialist_analysis,
             route_user_query,
             # Core data management tools
             ingest_csv,
+            ingest_excel,
+            list_excel_sheets,
             ingest_pdfs,
             list_recent_transactions,
             search_transactions,
@@ -294,6 +409,10 @@ def route_user_query(
         results.append("\n💡 **Recommendation:** Route to Budget Specialist")
     elif intent['primary_intent'] == 'goal':
         results.append("\n💡 **Recommendation:** Route to Goal Specialist")
+    elif intent['primary_intent'] == 'investment':
+        results.append("\n💡 **Recommendation:** Route to Investment Specialist")
+    elif intent['primary_intent'] == 'debt':
+        results.append("\n💡 **Recommendation:** Route to Debt Specialist")
     elif intent['is_data_operation']:
         results.append("\n💡 **Recommendation:** Handle directly (data operation)")
     else:

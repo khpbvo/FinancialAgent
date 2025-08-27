@@ -8,6 +8,7 @@ from agents.agent import StopAtTools
 
 from .context import AppConfig, DB, RunDeps
 from .tools.ingest import ingest_csv
+from .tools.excel_ingest import ingest_excel, list_excel_sheets
 from .tools.query import list_recent_transactions, search_transactions
 from .tools.advice import analyze_and_advise
 from .tools.pdf_ingest import ingest_pdfs
@@ -55,15 +56,18 @@ def dynamic_instructions(context: RunContextWrapper[RunDeps], agent: Agent[RunDe
     mem_count = cur.fetchone()["count"]
     
     base_instructions = (
-        "You are a financial assistant with advanced capabilities:\n"
-        "• Ingest CSV/PDF files and manage transactions\n"
+        "You are a comprehensive financial assistant with advanced capabilities:\n"
+        "• Ingest CSV/PDF/Excel files and manage transactions\n"
         "• Set and track budgets with spending alerts\n"
         "• Create and monitor financial goals (savings, debt reduction)\n"
+        "• Analyze investment readiness and portfolio strategies\n"
+        "• Develop debt elimination and consolidation plans\n"
         "• Detect recurring transactions and subscriptions automatically\n"
         "• Export data to CSV/Excel/PDF for reports and tax preparation\n"
         "• Generate professional tax reports with categorized deductions\n"
         "• Provide expert analysis and personalized financial advice\n"
-        "When giving advice, be concise and quantify when possible."
+        "When giving advice, be concise and quantify when possible.\n"
+        "\nNote: You coordinate 5 specialist agents for advanced analysis when needed."
     )
     
     if tx_count > 0:
@@ -113,6 +117,8 @@ def build_legacy_agent() -> Agent[RunDeps]:
         tools=[
             # Ingestion tools
             ingest_csv,
+            ingest_excel,
+            list_excel_sheets,
             ingest_pdfs,
             # Query tools
             list_recent_transactions,

@@ -90,6 +90,9 @@ Available commands:
 • 'recent' - Show recent transactions
 • 'analyze' - Analyze your spending patterns
 • 'clear' - Clear conversation history (start fresh)
+• 'clear-db' - Clear all transactions and memories from database
+• 'clear-sessions' - Clear all conversation session files
+• 'clear-all' - Clear both database and session files
 • 'history' - Show conversation history status
 • 'help' - Show this help
 • 'quit' - Exit the program
@@ -99,6 +102,29 @@ Available commands:
             if user_input.lower() == 'clear' and session:
                 await session.clear_session()
                 print("🧹 Conversation history cleared")
+                continue
+            
+            if user_input.lower() == 'clear-db':
+                result = clear_database()
+                print(result)
+                continue
+                
+            if user_input.lower() == 'clear-sessions':
+                result = clear_sessions()
+                print(result)
+                # Also clear current session if active
+                if session:
+                    await session.clear_session()
+                    print("🧹 Current conversation history also cleared")
+                continue
+            
+            if user_input.lower() == 'clear-all':
+                result = clear_all()
+                print(result)
+                # Also clear current session if active
+                if session:
+                    await session.clear_session()
+                    print("🧹 Current conversation history also cleared")
                 continue
             
             if user_input.lower() == 'history' and session:
@@ -127,11 +153,19 @@ Available commands:
             
             current_message = ""
             show_progress = True
+            reasoning_started = False
             
             async for event in result.stream_events():
                 if event.type == "raw_response_event":
-                    # Stream text deltas for real-time output
-                    if isinstance(event.data, ResponseTextDeltaEvent):
+                    # Handle reasoning/thinking events if available
+                    if hasattr(event.data, 'type') and 'reasoning' in str(event.data.type).lower():
+                        if not reasoning_started:
+                            print("\n🧠 Agent reasoning: ", end="", flush=True)
+                            reasoning_started = True
+                        if hasattr(event.data, 'delta'):
+                            print(event.data.delta, end="", flush=True)
+                    # Handle text deltas
+                    elif isinstance(event.data, ResponseTextDeltaEvent):
                         if show_progress:
                             print("\n📝 Response:", end=" ", flush=True)
                             show_progress = False
@@ -140,27 +174,46 @@ Available commands:
                 
                 elif event.type == "run_item_stream_event":
                     if event.item.type == "tool_call_item":
-                        # Better tool name extraction
-                        tool_name = None
-                        if hasattr(event.item, 'name'):
-                            tool_name = event.item.name
-                        elif hasattr(event.item, 'function') and hasattr(event.item.function, 'name'):
-                            tool_name = event.item.function.name
-                        elif hasattr(event.item, 'function') and isinstance(event.item.function, dict):
-                            tool_name = event.item.function.get('name')
+                        # Fixed tool name extraction - get from raw_item
+                        tool_name = "Unknown Tool"  # Default fallback
                         
-                        tool_name = tool_name or 'Unknown Tool'
+                        # Method 1: Try raw_item.function.name (OpenAI API structure)
+                        if hasattr(event.item, 'raw_item') and event.item.raw_item:
+                            raw = event.item.raw_item
+                            if hasattr(raw, 'function') and hasattr(raw.function, 'name'):
+                                tool_name = raw.function.name
+                            elif hasattr(raw, 'name'):
+                                tool_name = raw.name
+                            # Handle dictionary format
+                            elif isinstance(raw, dict):
+                                if 'function' in raw and isinstance(raw['function'], dict):
+                                    tool_name = raw['function'].get('name', 'Unknown Tool')
+                                elif 'name' in raw:
+                                    tool_name = raw['name']
+                        
+                        # Method 2: Try direct item attributes (fallback)
+                        if tool_name == "Unknown Tool":
+                            if hasattr(event.item, 'name') and event.item.name:
+                                tool_name = event.item.name
+                            elif hasattr(event.item, 'function') and hasattr(event.item.function, 'name'):
+                                tool_name = event.item.function.name
+                            elif hasattr(event.item, 'tool_name') and event.item.tool_name:
+                                tool_name = event.item.tool_name
                         
                         # Use global tool descriptions
                         desc = TOOL_DESCRIPTIONS.get(tool_name, f"🔧 Using tool: {tool_name}")
                         print(f"\n{desc}")
+                        
+                        # Add progress estimates for known long-running tools
+                        if tool_name in ["detect_recurring", "analyze_and_advise", "ingest_csv", "ingest_pdfs", "analyze_subscription_value"]:
+                            print("   ⏳ This may take a moment...")
                     elif event.item.type == "tool_call_output_item":
-                        # Show tool output preview if available
+                        # Show completion with more detailed feedback
                         output = getattr(event.item, 'output', '')
-                        if output and len(output) < 100:
-                            print(f"✅ Completed: {output[:100]}")
+                        if output and len(str(output)) < 100:
+                            print(f"   ✅ Completed: {str(output)[:100]}")
                         else:
-                            print(f"✅ Tool completed")
+                            print(f"   ✅ Tool completed successfully")
                     elif event.item.type == "message_output_item":
                         # If we didn't get deltas, show the full message
                         if not current_message:
@@ -169,9 +222,15 @@ Available commands:
                                 print(f"\n📝 Response: {message_text}")
                             except Exception:
                                 print(f"\n📝 Response: {event.item}")
+                    
+                    # Handle reasoning items if they exist
+                    elif event.item.type == "reasoning_item" and hasattr(event.item, 'content'):
+                        reasoning_content = str(event.item.content)[:100]
+                        print(f"\n🧠 Agent reasoning: {reasoning_content}...")
                 
                 elif event.type == "agent_updated_stream_event":
                     print(f"\n🔄 Agent updated: {event.new_agent.name}")
+                    print(f"   💼 Specializing in: {event.new_agent.name.lower().replace('_', ' ')}")
             
             print("\n")  # Add newline after response
             current_message = ""  # Reset for next iteration
@@ -204,11 +263,19 @@ async def streaming_mode(agent, deps, user_input: str, use_session: bool = False
     
     current_message = ""
     show_progress = True
+    reasoning_started = False
     
     async for event in result.stream_events():
         if event.type == "raw_response_event":
-            # Stream text deltas for real-time output
-            if isinstance(event.data, ResponseTextDeltaEvent):
+            # Handle reasoning/thinking events if available
+            if hasattr(event.data, 'type') and 'reasoning' in str(event.data.type).lower():
+                if not reasoning_started:
+                    print("\n🧠 Agent reasoning: ", end="", flush=True)
+                    reasoning_started = True
+                if hasattr(event.data, 'delta'):
+                    print(event.data.delta, end="", flush=True)
+            # Handle text deltas
+            elif isinstance(event.data, ResponseTextDeltaEvent):
                 if show_progress:
                     print("📝 Response: ", end="", flush=True)
                     show_progress = False
@@ -217,27 +284,46 @@ async def streaming_mode(agent, deps, user_input: str, use_session: bool = False
         
         elif event.type == "run_item_stream_event":
             if event.item.type == "tool_call_item":
-                # Better tool name extraction
-                tool_name = None
-                if hasattr(event.item, 'name'):
-                    tool_name = event.item.name
-                elif hasattr(event.item, 'function') and hasattr(event.item.function, 'name'):
-                    tool_name = event.item.function.name
-                elif hasattr(event.item, 'function') and isinstance(event.item.function, dict):
-                    tool_name = event.item.function.get('name')
+                # Fixed tool name extraction - get from raw_item
+                tool_name = "Unknown Tool"  # Default fallback
                 
-                tool_name = tool_name or 'Unknown Tool'
+                # Method 1: Try raw_item.function.name (OpenAI API structure)
+                if hasattr(event.item, 'raw_item') and event.item.raw_item:
+                    raw = event.item.raw_item
+                    if hasattr(raw, 'function') and hasattr(raw.function, 'name'):
+                        tool_name = raw.function.name
+                    elif hasattr(raw, 'name'):
+                        tool_name = raw.name
+                    # Handle dictionary format
+                    elif isinstance(raw, dict):
+                        if 'function' in raw and isinstance(raw['function'], dict):
+                            tool_name = raw['function'].get('name', 'Unknown Tool')
+                        elif 'name' in raw:
+                            tool_name = raw['name']
+                
+                # Method 2: Try direct item attributes (fallback)
+                if tool_name == "Unknown Tool":
+                    if hasattr(event.item, 'name') and event.item.name:
+                        tool_name = event.item.name
+                    elif hasattr(event.item, 'function') and hasattr(event.item.function, 'name'):
+                        tool_name = event.item.function.name
+                    elif hasattr(event.item, 'tool_name') and event.item.tool_name:
+                        tool_name = event.item.tool_name
                 
                 # Use global tool descriptions
                 desc = TOOL_DESCRIPTIONS.get(tool_name, f"🔧 Using tool: {tool_name}")
                 print(f"\n{desc}")
+                
+                # Add progress estimates for known long-running tools
+                if tool_name in ["detect_recurring", "analyze_and_advise", "ingest_csv", "ingest_pdfs", "analyze_subscription_value"]:
+                    print("   ⏳ This may take a moment...")
             elif event.item.type == "tool_call_output_item":
-                # Show tool output preview if available
+                # Show completion with more detailed feedback
                 output = getattr(event.item, 'output', '')
                 if output and len(str(output)) < 100:
-                    print(f"✅ Completed: {str(output)[:100]}")
+                    print(f"   ✅ Completed: {str(output)[:100]}")
                 else:
-                    print(f"✅ Tool completed")
+                    print(f"   ✅ Tool completed successfully")
             elif event.item.type == "message_output_item":
                 # If we didn't get deltas, show the full message
                 if not current_message:
@@ -246,12 +332,63 @@ async def streaming_mode(agent, deps, user_input: str, use_session: bool = False
                         print(f"📝 Response: {message_text}")
                     except Exception:
                         print(f"📝 Response: {event.item}")
+            
+            # Handle reasoning items if they exist
+            elif event.item.type == "reasoning_item" and hasattr(event.item, 'content'):
+                reasoning_content = str(event.item.content)[:100]
+                print(f"\n🧠 Agent reasoning: {reasoning_content}...")
         
         elif event.type == "agent_updated_stream_event":
             print(f"\n🔄 Agent updated: {event.new_agent.name}")
+            print(f"   💼 Specializing in: {event.new_agent.name.lower().replace('_', ' ')}")
     
     print("\n" + "=" * 50)
-    print("✅ Complete!")
+    print("✅ Processing complete! Results shown above.")
+
+
+def clear_database() -> str:
+    """Clear all data from the financial database."""
+    deps = build_deps()
+    deps.ensure_ready()
+    cursor = deps.db.conn.cursor()
+    
+    # Get counts before clearing
+    cursor.execute('SELECT COUNT(*) FROM transactions')
+    transaction_count = cursor.fetchone()[0]
+    cursor.execute('SELECT COUNT(*) FROM memories')
+    memory_count = cursor.fetchone()[0]
+    
+    # Clear all data
+    cursor.execute('DELETE FROM transactions')
+    cursor.execute('DELETE FROM memories')
+    deps.db.conn.commit()
+    
+    return f"🧹 Database cleared: {transaction_count} transactions and {memory_count} memories removed"
+
+
+def clear_sessions() -> str:
+    """Clear all session files."""
+    session_path = Path.home() / ".financial_agent"
+    if not session_path.exists():
+        return "No session files found"
+    
+    removed_files = []
+    for file in session_path.glob("*"):
+        if file.is_file():
+            file.unlink()
+            removed_files.append(file.name)
+    
+    if removed_files:
+        return f"🧹 Session files cleared: {', '.join(removed_files)}"
+    else:
+        return "No session files to clear"
+
+
+def clear_all() -> str:
+    """Clear both database and session files."""
+    db_result = clear_database()
+    session_result = clear_sessions()
+    return f"{db_result}\n{session_result}"
 
 
 def main() -> None:
@@ -261,7 +398,26 @@ def main() -> None:
     parser.add_argument("--interactive", action="store_true", help="Start interactive mode")
     parser.add_argument("--bootstrap", action="store_true", help="Ingest PDFs/CSVs from documents/")
     parser.add_argument("--no-session", action="store_true", help="Disable session memory")
+    parser.add_argument("--clear-db", action="store_true", help="Clear all transactions and memories from database")
+    parser.add_argument("--clear-sessions", action="store_true", help="Clear all conversation session files")
+    parser.add_argument("--clear-all", action="store_true", help="Clear both database and session files")
     args = parser.parse_args()
+
+    # Handle clearing commands first (before context manager)
+    if args.clear_db:
+        result = clear_database()
+        print(result)
+        return
+    
+    if args.clear_sessions:
+        result = clear_sessions()
+        print(result)
+        return
+    
+    if args.clear_all:
+        result = clear_all()
+        print(result)
+        return
 
     with build_deps() as deps:
         agent = build_agent()

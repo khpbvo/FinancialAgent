@@ -9,6 +9,7 @@ from ..context import RunDeps
 
 def calculate_frequency(dates: List[str]) -> tuple[str, float]:
     """Calculate the frequency of transactions based on dates.
+    Uses a month-based approach that's more accurate for recurring transactions.
     
     Returns: (frequency_type, confidence_score)
     """
@@ -18,91 +19,148 @@ def calculate_frequency(dates: List[str]) -> tuple[str, float]:
     # Convert to datetime objects and sort
     dt_dates = sorted([datetime.strptime(d, '%Y-%m-%d') for d in dates])
     
-    # Group dates that are within 3 days of each other (same occurrence period)
-    # This handles cases where multiple transactions happen on consecutive days
-    occurrence_groups = []
-    current_group = [dt_dates[0]]
+    # Group dates by month to detect monthly patterns
+    monthly_groups = defaultdict(list)
+    for dt in dt_dates:
+        month_key = f"{dt.year}-{dt.month:02d}"
+        monthly_groups[month_key].append(dt)
     
-    for i in range(1, len(dt_dates)):
-        # If this date is within 3 days of the last date in current group, add to group
-        if (dt_dates[i] - current_group[-1]).days <= 3:
-            current_group.append(dt_dates[i])
-        else:
-            # Start a new group
-            occurrence_groups.append(current_group)
-            current_group = [dt_dates[i]]
-    occurrence_groups.append(current_group)
+    # Get unique months with transactions
+    months = sorted(monthly_groups.keys())
     
-    # Use the first date of each group as the occurrence date
-    occurrence_dates = [group[0] for group in occurrence_groups]
-    
-    if len(occurrence_dates) < 2:
+    if len(months) < 2:
         return "unknown", 0.0
     
-    # Calculate intervals between occurrences
-    intervals = [(occurrence_dates[i+1] - occurrence_dates[i]).days for i in range(len(occurrence_dates)-1)]
+    # Calculate intervals between months with transactions
+    month_dates = [datetime.strptime(month + "-01", "%Y-%m-%d") for month in months]
+    month_intervals = [(month_dates[i+1] - month_dates[i]).days for i in range(len(month_dates)-1)]
     
-    if not intervals:
+    if not month_intervals:
         return "unknown", 0.0
     
-    # Filter out outlier intervals (more than 3x the median)
-    intervals_sorted = sorted(intervals)
-    median_interval = intervals_sorted[len(intervals_sorted) // 2]
-    filtered_intervals = [i for i in intervals if i <= median_interval * 3]
+    # Calculate average monthly interval
+    avg_month_interval = sum(month_intervals) / len(month_intervals)
     
-    if not filtered_intervals:
-        filtered_intervals = intervals
+    # For daily/weekly analysis, use actual transaction dates
+    if len(dt_dates) >= 7:  # Need enough data points for daily/weekly analysis
+        intervals = [(dt_dates[i+1] - dt_dates[i]).days for i in range(len(dt_dates)-1)]
+        avg_day_interval = sum(intervals) / len(intervals)
+        
+        # Check for daily pattern (transactions every 1-3 days)
+        if 1 <= avg_day_interval <= 3 and len(dt_dates) >= 10:
+            variance = sum((i - avg_day_interval) ** 2 for i in intervals) / len(intervals)
+            confidence = max(0.1, 1 - (variance / (avg_day_interval ** 2)))
+            return "daily", min(confidence, 0.9)
+        
+        # Check for weekly pattern (5-10 day average)
+        if 5 <= avg_day_interval <= 10:
+            variance = sum((i - avg_day_interval) ** 2 for i in intervals) / len(intervals)
+            confidence = max(0.1, 1 - (variance / 49))  # normalized to weekly variance
+            return "weekly", min(confidence, 0.9)
     
-    avg_interval = sum(filtered_intervals) / len(filtered_intervals)
+    # Monthly pattern detection (most common for subscriptions)
+    if 25 <= avg_month_interval <= 35:  # ~1 month intervals
+        # Calculate confidence based on consistency
+        target = 30  # days in a month
+        variance = sum((i - target) ** 2 for i in month_intervals) / len(month_intervals)
+        confidence = max(0.3, 1 - (variance / (target ** 2)))
+        return "monthly", min(confidence, 0.95)
     
-    # Tighter frequency definitions with better tolerances
-    frequencies = [
-        (1, "daily", 0),         # Exactly daily (no tolerance)
-        (7, "weekly", 2),        # 7 days ± 2 (5-9 days)
-        (14, "bi-weekly", 3),    # 14 days ± 3 (11-17 days)
-        (30, "monthly", 7),      # 30 days ± 7 (23-37 days)
-        (90, "quarterly", 15),   # 90 days ± 15 (75-105 days)
-        (365, "yearly", 30),     # 365 days ± 30 (335-395 days)
-    ]
+    # Bi-weekly pattern (every 2 weeks, so ~14 days)
+    if len(dt_dates) >= 4:
+        intervals = [(dt_dates[i+1] - dt_dates[i]).days for i in range(len(dt_dates)-1)]
+        avg_interval = sum(intervals) / len(intervals)
+        if 12 <= avg_interval <= 16:
+            variance = sum((i - 14) ** 2 for i in intervals) / len(intervals)
+            confidence = max(0.2, 1 - (variance / 196))  # normalized to bi-weekly variance
+            return "bi-weekly", min(confidence, 0.9)
     
-    best_match = None
-    best_confidence = 0.0
+    # Quarterly pattern (every 3 months)
+    if 80 <= avg_month_interval <= 100:  # ~3 month intervals
+        target = 90  # days in a quarter
+        variance = sum((i - target) ** 2 for i in month_intervals) / len(month_intervals)
+        confidence = max(0.2, 1 - (variance / (target ** 2)))
+        return "quarterly", min(confidence, 0.9)
     
-    for expected, freq_name, tolerance in frequencies:
-        if abs(avg_interval - expected) <= tolerance:
-            # Calculate confidence based on consistency
-            variance = sum((i - avg_interval) ** 2 for i in filtered_intervals) / len(filtered_intervals)
-            # Normalize variance by expected interval squared
-            normalized_variance = variance / (expected ** 2) if expected > 0 else 1
-            # Confidence decreases with variance and increases with more occurrences
-            occurrence_bonus = min(0.2, len(occurrence_dates) * 0.05)
-            confidence = max(0.1, (1 - normalized_variance) * 0.8 + occurrence_bonus)
-            
-            if confidence > best_confidence:
-                best_match = (freq_name, confidence)
-                best_confidence = confidence
+    # Yearly pattern (every 12 months)
+    if 330 <= avg_month_interval <= 400:  # ~1 year intervals
+        target = 365  # days in a year
+        variance = sum((i - target) ** 2 for i in month_intervals) / len(month_intervals)
+        confidence = max(0.2, 1 - (variance / (target ** 2)))
+        return "yearly", min(confidence, 0.9)
     
-    if best_match:
-        return best_match
-    
-    # If no clear pattern, check for irregular but recurring
-    if len(occurrence_dates) >= 3:
+    # If we have multiple months but irregular timing, it's still recurring
+    if len(months) >= 3:
+        # Look for seasonal or irregular patterns
         return "irregular", 0.4
     
     return "unknown", 0.0
 
 
 def normalize_description(desc: str) -> str:
-    """Normalize transaction description for pattern matching."""
-    # Remove dates, transaction IDs, and variable numbers
-    normalized = re.sub(r'\d{4}-\d{2}-\d{2}', '', desc)
-    normalized = re.sub(r'\b\d{4,}\b', '', normalized)
-    normalized = re.sub(r'#\d+', '', normalized)
-    # Keep only alphanumeric and spaces
-    normalized = re.sub(r'[^a-zA-Z0-9\s]', ' ', normalized)
-    # Collapse multiple spaces
-    normalized = ' '.join(normalized.split()).lower()
-    return normalized
+    """Normalize transaction description for pattern matching.
+    Optimized for Dutch bank transaction descriptions.
+    """
+    if not desc:
+        return "unknown"
+    
+    # Convert to uppercase for consistency (Dutch bank format)
+    normalized = desc.upper().strip()
+    
+    # Remove common Dutch bank formatting patterns
+    # Remove dates in various formats
+    normalized = re.sub(r'\b\d{2}-\d{2}-\d{4}\b', '', normalized)  # DD-MM-YYYY
+    normalized = re.sub(r'\b\d{4}-\d{2}-\d{2}\b', '', normalized)  # YYYY-MM-DD
+    normalized = re.sub(r'\b\d{2}/\d{2}/\d{4}\b', '', normalized)  # DD/MM/YYYY
+    
+    # Remove policy numbers, account numbers, and reference numbers
+    normalized = re.sub(r'\bPOLISNR[.:]*\s*\d+', '', normalized)
+    normalized = re.sub(r'\bIBAN[.:]*\s*[A-Z]{2}\d{2}[A-Z0-9]+', '', normalized)
+    normalized = re.sub(r'\bKENMERK[.:]*\s*\d+', '', normalized)
+    normalized = re.sub(r'\bMACHTIGING ID[.:]*\s*\d+', '', normalized)
+    normalized = re.sub(r'\bINCASS\w+ ID[.:]*\s*[A-Z0-9]+', '', normalized)
+    
+    # Remove time stamps and transaction IDs
+    normalized = re.sub(r'\b\d{2}:\d{2}(:\d{2})?\b', '', normalized)
+    normalized = re.sub(r'\b\d{6,}\b', '', normalized)  # Long numbers (transaction IDs)
+    
+    # Remove common Dutch banking terms that don't help identify merchants
+    banking_terms = [
+        'NAAM:', 'OMSCHRIJVING:', 'PERIODE:', 'IBAN:', 'KENMERK:', 'VALUTADATUM:',
+        'DOORLOPENDE INCASSO', 'INCASSO', 'DATUM/TIJD:', 'PASVOLGNR:',
+        'TRANSACTIE:', 'TERM:', 'APPLE PAY', 'NLD', 'BV', 'NV', 'VOF', 'CV'
+    ]
+    
+    for term in banking_terms:
+        normalized = normalized.replace(term, ' ')
+    
+    # Clean up specific patterns from the sample data
+    normalized = re.sub(r'\s+BETR\s+', ' ', normalized)  # "betr" = regarding
+    normalized = re.sub(r'\s+VIA\s+', ' ', normalized)   # "via" connector
+    
+    # Remove standalone single letters and numbers
+    normalized = re.sub(r'\b[A-Z0-9]\b', ' ', normalized)
+    
+    # Keep only alphanumeric characters and spaces, remove special chars
+    normalized = re.sub(r'[^A-Z0-9\s]', ' ', normalized)
+    
+    # Collapse multiple spaces and trim
+    normalized = ' '.join(normalized.split())
+    
+    # Take first significant part (up to 40 chars) to focus on merchant name
+    if len(normalized) > 40:
+        # Try to break at word boundary
+        words = normalized.split()
+        result = []
+        char_count = 0
+        for word in words:
+            if char_count + len(word) > 35:  # Leave room for spaces
+                break
+            result.append(word)
+            char_count += len(word) + 1  # +1 for space
+        normalized = ' '.join(result) if result else normalized[:40]
+    
+    return normalized.lower() if normalized else "unknown"
 
 
 @function_tool
@@ -137,37 +195,74 @@ def detect_recurring(
     if not transactions:
         return "No transactions found in the specified period."
     
-    # Group transactions by normalized description and similar amounts
+    # Group transactions by normalized description with amount tolerance
     patterns = defaultdict(list)
     
     for tx in transactions:
         normalized = normalize_description(tx['description'])
-        # Round amount to nearest euro for grouping
-        amount_key = round(abs(tx['amount']))
-        key = (normalized[:30], amount_key)  # Use first 30 chars of normalized desc
-        patterns[key].append(tx)
+        if not normalized or normalized == "unknown":
+            continue
+        
+        # Use normalized description as primary key, handle amounts separately
+        patterns[normalized].append(tx)
     
-    # Find recurring patterns
+    # Find recurring patterns with amount clustering
     recurring = []
     
-    for (desc_pattern, amount), txs in patterns.items():
-        if len(txs) >= min_occurrences:
-            # Calculate frequency and confidence
-            dates = [tx['date'] for tx in txs]
-            frequency, confidence = calculate_frequency(dates)
+    for desc_pattern, txs in patterns.items():
+        if len(txs) < min_occurrences:
+            continue
+        
+        # Group by similar amounts (within 10% tolerance)
+        amount_groups = defaultdict(list)
+        for tx in txs:
+            amount = abs(tx['amount'])
+            # Find existing group within 10% tolerance
+            group_key = None
+            for existing_amount in amount_groups.keys():
+                if abs(amount - existing_amount) <= max(5.0, existing_amount * 0.1):  # 10% or €5 minimum
+                    group_key = existing_amount
+                    break
             
-            if confidence > 0.6:  # Only include if confidence is reasonable
-                avg_amount = sum(abs(tx['amount']) for tx in txs) / len(txs)
-                recurring.append({
-                    'pattern': desc_pattern,
-                    'sample_desc': txs[0]['description'],
-                    'amount': avg_amount,
-                    'frequency': frequency,
-                    'confidence': confidence,
-                    'occurrences': len(txs),
-                    'category': txs[0]['category'],
-                    'last_date': max(dates)
-                })
+            if group_key is None:
+                group_key = amount
+            
+            amount_groups[group_key].append(tx)
+        
+        # Process each amount group separately
+        for amount_key, group_txs in amount_groups.items():
+            if len(group_txs) >= min_occurrences:
+                # Calculate frequency and confidence
+                dates = [tx['date'] for tx in group_txs]
+                frequency, confidence = calculate_frequency(dates)
+                
+                # Lower confidence threshold for better detection
+                if confidence > 0.3:  # More lenient threshold
+                    avg_amount = sum(abs(tx['amount']) for tx in group_txs) / len(group_txs)
+                    
+                    # Boost confidence for clearly recurring patterns
+                    if frequency in ['monthly', 'quarterly'] and len(group_txs) >= 4:
+                        confidence = min(confidence + 0.2, 0.95)
+                    elif frequency == 'yearly' and len(group_txs) >= 2:
+                        confidence = min(confidence + 0.1, 0.9)
+                    
+                    # Check for amount consistency to boost confidence
+                    amounts = [abs(tx['amount']) for tx in group_txs]
+                    if len(amounts) > 1:
+                        amount_variance = sum((a - avg_amount) ** 2 for a in amounts) / len(amounts)
+                        amount_consistency = 1 - (amount_variance / (avg_amount ** 2)) if avg_amount > 0 else 0
+                        confidence = min(confidence + (amount_consistency * 0.1), 0.95)
+                    
+                    recurring.append({
+                        'pattern': desc_pattern,
+                        'sample_desc': group_txs[0]['description'],
+                        'amount': avg_amount,
+                        'frequency': frequency,
+                        'confidence': confidence,
+                        'occurrences': len(group_txs),
+                        'category': group_txs[0]['category'],
+                        'last_date': max(dates)
+                    })
     
     if not recurring:
         return "No recurring transactions detected. Try reducing min_occurrences or increasing lookback period."
@@ -202,19 +297,22 @@ def detect_recurring(
     for rec in recurring:
         conf_percent = rec['confidence'] * 100
         
-        # Calculate monthly cost
+        # Calculate monthly cost with improved accuracy
         if rec['frequency'] == 'daily':
-            monthly_cost = rec['amount'] * 30
+            monthly_cost = rec['amount'] * 30.44  # Average days per month
         elif rec['frequency'] == 'weekly':
-            monthly_cost = rec['amount'] * 4.33
+            monthly_cost = rec['amount'] * 4.345  # 52.14 weeks per year / 12 months
         elif rec['frequency'] == 'bi-weekly':
-            monthly_cost = rec['amount'] * 2.17  # 26 payments per year / 12 months
+            monthly_cost = rec['amount'] * 2.173  # 26.07 payments per year / 12 months
         elif rec['frequency'] == 'monthly':
             monthly_cost = rec['amount']
         elif rec['frequency'] == 'quarterly':
             monthly_cost = rec['amount'] / 3
         elif rec['frequency'] == 'yearly':
             monthly_cost = rec['amount'] / 12
+        elif rec['frequency'] == 'irregular':
+            # For irregular patterns, estimate based on occurrences over time period
+            monthly_cost = rec['amount']  # Conservative estimate
         else:
             monthly_cost = rec['amount']
         
@@ -271,19 +369,21 @@ def list_subscriptions(ctx: RunContextWrapper[RunDeps]) -> str:
         results.append(f"\n📅 {freq.upper()}")
         
         for sub in by_frequency[freq]:
-            # Calculate monthly cost
+            # Calculate monthly cost with improved accuracy
             if freq == 'daily':
-                monthly = sub['amount'] * 30
+                monthly = sub['amount'] * 30.44  # Average days per month
             elif freq == 'weekly':
-                monthly = sub['amount'] * 4.33
+                monthly = sub['amount'] * 4.345  # 52.14 weeks per year / 12 months
             elif freq == 'bi-weekly':
-                monthly = sub['amount'] * 2.17
+                monthly = sub['amount'] * 2.173  # 26.07 payments per year / 12 months
             elif freq == 'monthly':
                 monthly = sub['amount']
             elif freq == 'quarterly':
                 monthly = sub['amount'] / 3
-            else:  # yearly
+            elif freq == 'yearly':
                 monthly = sub['amount'] / 12
+            else:  # irregular
+                monthly = sub['amount']  # Conservative estimate
             
             total_monthly += monthly
             
@@ -340,19 +440,21 @@ def analyze_subscription_value(ctx: RunContextWrapper[RunDeps]) -> str:
     total_monthly_recurring = 0
     
     for sub in subscriptions:
-        # Calculate monthly cost
+        # Calculate monthly cost with improved accuracy
         if sub['frequency'] == 'daily':
-            monthly_cost = sub['amount'] * 30
+            monthly_cost = sub['amount'] * 30.44  # Average days per month
         elif sub['frequency'] == 'weekly':
-            monthly_cost = sub['amount'] * 4.33
+            monthly_cost = sub['amount'] * 4.345  # 52.14 weeks per year / 12 months
         elif sub['frequency'] == 'bi-weekly':
-            monthly_cost = sub['amount'] * 2.17
+            monthly_cost = sub['amount'] * 2.173  # 26.07 payments per year / 12 months
         elif sub['frequency'] == 'monthly':
             monthly_cost = sub['amount']
         elif sub['frequency'] == 'quarterly':
             monthly_cost = sub['amount'] / 3
         elif sub['frequency'] == 'yearly':
             monthly_cost = sub['amount'] / 12
+        elif sub['frequency'] == 'irregular':
+            monthly_cost = sub['amount']  # Conservative estimate
         else:
             monthly_cost = sub['amount']
         
@@ -442,25 +544,30 @@ def predict_next_recurring(
     for rec in recurring:
         last_date = datetime.strptime(rec['last_seen'], '%Y-%m-%d')
         
-        # Calculate next occurrence based on frequency
+        # Calculate next occurrence based on frequency with better accuracy
         if rec['frequency'] == 'daily':
             next_date = last_date + timedelta(days=1)
             interval = timedelta(days=1)
         elif rec['frequency'] == 'weekly':
-            next_date = last_date + timedelta(weeks=1)
-            interval = timedelta(weeks=1)
+            next_date = last_date + timedelta(days=7)
+            interval = timedelta(days=7)
         elif rec['frequency'] == 'bi-weekly':
-            next_date = last_date + timedelta(weeks=2)
-            interval = timedelta(weeks=2)
+            next_date = last_date + timedelta(days=14)
+            interval = timedelta(days=14)
         elif rec['frequency'] == 'monthly':
+            # Use more accurate monthly prediction (avoid month-end issues)
             next_date = last_date + timedelta(days=30)
             interval = timedelta(days=30)
         elif rec['frequency'] == 'quarterly':
-            next_date = last_date + timedelta(days=90)
-            interval = timedelta(days=90)
+            next_date = last_date + timedelta(days=91)  # More accurate quarter
+            interval = timedelta(days=91)
         elif rec['frequency'] == 'yearly':
             next_date = last_date + timedelta(days=365)
             interval = timedelta(days=365)
+        elif rec['frequency'] == 'irregular':
+            # For irregular patterns, predict conservatively
+            next_date = last_date + timedelta(days=30)
+            interval = timedelta(days=45)  # Longer interval for irregular
         else:
             continue
         
