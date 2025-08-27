@@ -151,6 +151,7 @@ Available commands:
                         
                         tool_name = tool_name or 'Unknown Tool'
                         
+                        # Use global tool descriptions
                         desc = TOOL_DESCRIPTIONS.get(tool_name, f"🔧 Using tool: {tool_name}")
                         print(f"\n{desc}")
                     elif event.item.type == "tool_call_output_item":
@@ -227,6 +228,7 @@ async def streaming_mode(agent, deps, user_input: str, use_session: bool = False
                 
                 tool_name = tool_name or 'Unknown Tool'
                 
+                # Use global tool descriptions
                 desc = TOOL_DESCRIPTIONS.get(tool_name, f"🔧 Using tool: {tool_name}")
                 print(f"\n{desc}")
             elif event.item.type == "tool_call_output_item":
