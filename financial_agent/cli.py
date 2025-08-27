@@ -12,6 +12,49 @@ from pathlib import Path
 from .agent import build_agent, build_deps
 
 
+TOOL_DESCRIPTIONS = {
+    # Core tools
+    "ingest_csv": "📊 Processing CSV file",
+    "ingest_pdfs": "📄 Extracting PDF content",
+    "list_recent_transactions": "📋 Fetching recent transactions",
+    "search_transactions": "🔍 Searching transaction history",
+    "analyze_and_advise": "💡 Analyzing financial data",
+    "summarize_file": "📝 Summarizing document",
+    "summarize_overview": "📈 Creating overview summary",
+    "add_transaction": "➕ Adding transaction",
+    "list_memories": "🧠 Retrieving memories",
+    # Export tools
+    "export_transactions": "📤 Exporting transactions",
+    "export_recurring_payments": "🔄 Exporting recurring payments only",
+    "generate_tax_report": "🏛️ Generating tax report",
+    "export_budget_report": "📊 Exporting budget report",
+    # Budget tools
+    "set_budget": "💰 Setting budget",
+    "check_budget": "💳 Checking budget status",
+    "list_budgets": "📋 Listing budgets",
+    "suggest_budgets": "💡 Suggesting budget plans",
+    "delete_budget": "🗑️ Deleting budget",
+    # Goal tools
+    "create_goal": "🎯 Creating financial goal",
+    "update_goal_progress": "📈 Updating goal progress",
+    "check_goals": "🎯 Checking goals status",
+    "suggest_savings_plan": "💰 Suggesting savings plan",
+    "complete_goal": "✅ Completing goal",
+    "pause_goal": "⏸️ Pausing goal",
+    # Recurring transaction tools
+    "detect_recurring": "🔄 Detecting recurring payments",
+    "list_subscriptions": "📋 Listing subscriptions",
+    "analyze_subscription_value": "💡 Analyzing subscription value",
+    "predict_next_recurring": "🔮 Predicting next payments",
+    # Handoff tools
+    "handoff_to_tax_specialist": "🏛️ Consulting tax specialist",
+    "handoff_to_budget_specialist": "💰 Consulting budget specialist",
+    "handoff_to_goal_specialist": "🎯 Consulting goal specialist",
+    "coordinate_multi_specialist_analysis": "🤝 Multi-specialist analysis",
+    "route_user_query": "🧠 Analyzing query routing",
+}
+
+
 async def interactive_mode(agent, deps, use_session: bool = True) -> None:
     """Interactive mode with streaming support and session memory"""
     print("🏦 Financial Agent Interactive Mode")
@@ -106,49 +149,8 @@ Available commands:
                         
                         tool_name = tool_name or 'Unknown Tool'
                         
-                        # Comprehensive tool descriptions
-                        tool_descriptions = {
-                            # Core tools
-                            "ingest_csv": "📊 Processing CSV file",
-                            "ingest_pdfs": "📄 Extracting PDF content",
-                            "list_recent_transactions": "📋 Fetching recent transactions",
-                            "search_transactions": "🔍 Searching transaction history",
-                            "analyze_and_advise": "💡 Analyzing financial data",
-                            "summarize_file": "📝 Summarizing document",
-                            "summarize_overview": "📈 Creating overview summary",
-                            "add_transaction": "➕ Adding transaction",
-                            "list_memories": "🧠 Retrieving memories",
-                            # Export tools
-                            "export_transactions": "📤 Exporting transactions",
-                            "export_recurring_payments": "🔄 Exporting recurring payments only",
-                            "generate_tax_report": "🏛️ Generating tax report",
-                            "export_budget_report": "📊 Exporting budget report",
-                            # Budget tools
-                            "set_budget": "💰 Setting budget",
-                            "check_budget": "💳 Checking budget status",
-                            "list_budgets": "📋 Listing budgets",
-                            "suggest_budgets": "💡 Suggesting budget plans",
-                            "delete_budget": "🗑️ Deleting budget",
-                            # Goal tools
-                            "create_goal": "🎯 Creating financial goal",
-                            "update_goal_progress": "📈 Updating goal progress",
-                            "check_goals": "🎯 Checking goals status",
-                            "suggest_savings_plan": "💰 Suggesting savings plan",
-                            "complete_goal": "✅ Completing goal",
-                            "pause_goal": "⏸️ Pausing goal",
-                            # Recurring transaction tools
-                            "detect_recurring": "🔄 Detecting recurring payments",
-                            "list_subscriptions": "📋 Listing subscriptions",
-                            "analyze_subscription_value": "💡 Analyzing subscription value",
-                            "predict_next_recurring": "🔮 Predicting next payments",
-                            # Handoff tools
-                            "handoff_to_tax_specialist": "🏛️ Consulting tax specialist",
-                            "handoff_to_budget_specialist": "💰 Consulting budget specialist",
-                            "handoff_to_goal_specialist": "🎯 Consulting goal specialist",
-                            "coordinate_multi_specialist_analysis": "🤝 Multi-specialist analysis",
-                            "route_user_query": "🧠 Analyzing query routing"
-                        }
-                        desc = tool_descriptions.get(tool_name, f"🔧 Using tool: {tool_name}")
+                        # Use global tool descriptions
+                        desc = TOOL_DESCRIPTIONS.get(tool_name, f"🔧 Using tool: {tool_name}")
                         print(f"\n{desc}")
                     elif event.item.type == "tool_call_output_item":
                         # Show tool output preview if available
@@ -224,49 +226,8 @@ async def streaming_mode(agent, deps, user_input: str, use_session: bool = False
                 
                 tool_name = tool_name or 'Unknown Tool'
                 
-                # Comprehensive tool descriptions
-                tool_descriptions = {
-                    # Core tools
-                    "ingest_csv": "📊 Processing CSV file",
-                    "ingest_pdfs": "📄 Extracting PDF content",
-                    "list_recent_transactions": "📋 Fetching recent transactions",
-                    "search_transactions": "🔍 Searching transaction history",
-                    "analyze_and_advise": "💡 Analyzing financial data",
-                    "summarize_file": "📝 Summarizing document",
-                    "summarize_overview": "📈 Creating overview summary",
-                    "add_transaction": "➕ Adding transaction",
-                    "list_memories": "🧠 Retrieving memories",
-                    # Export tools
-                    "export_transactions": "📤 Exporting transactions",
-                    "export_recurring_payments": "🔄 Exporting recurring payments only",
-                    "generate_tax_report": "🏛️ Generating tax report",
-                    "export_budget_report": "📊 Exporting budget report",
-                    # Budget tools
-                    "set_budget": "💰 Setting budget",
-                    "check_budget": "💳 Checking budget status",
-                    "list_budgets": "📋 Listing budgets",
-                    "suggest_budgets": "💡 Suggesting budget plans",
-                    "delete_budget": "🗑️ Deleting budget",
-                    # Goal tools
-                    "create_goal": "🎯 Creating financial goal",
-                    "update_goal_progress": "📈 Updating goal progress",
-                    "check_goals": "🎯 Checking goals status",
-                    "suggest_savings_plan": "💰 Suggesting savings plan",
-                    "complete_goal": "✅ Completing goal",
-                    "pause_goal": "⏸️ Pausing goal",
-                    # Recurring transaction tools
-                    "detect_recurring": "🔄 Detecting recurring payments",
-                    "list_subscriptions": "📋 Listing subscriptions",
-                    "analyze_subscription_value": "💡 Analyzing subscription value",
-                    "predict_next_recurring": "🔮 Predicting next payments",
-                    # Handoff tools
-                    "handoff_to_tax_specialist": "🏛️ Consulting tax specialist",
-                    "handoff_to_budget_specialist": "💰 Consulting budget specialist",
-                    "handoff_to_goal_specialist": "🎯 Consulting goal specialist",
-                    "coordinate_multi_specialist_analysis": "🤝 Multi-specialist analysis",
-                    "route_user_query": "🧠 Analyzing query routing"
-                }
-                desc = tool_descriptions.get(tool_name, f"🔧 Using tool: {tool_name}")
+                # Use global tool descriptions
+                desc = TOOL_DESCRIPTIONS.get(tool_name, f"🔧 Using tool: {tool_name}")
                 print(f"\n{desc}")
             elif event.item.type == "tool_call_output_item":
                 # Show tool output preview if available
