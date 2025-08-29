@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from pydantic import BaseModel
 from agents import Agent, ModelSettings, function_tool, RunContextWrapper
+from openai.types.shared import Reasoning
 from ..context import RunDeps
 
 
@@ -626,11 +627,18 @@ async def debt_consolidation_analyzer(
 def build_debt_agent() -> Agent[RunDeps]:
     """Build the Debt Management Specialist Agent."""
     
+    # Configure ModelSettings for GPT-5 with reasoning and text verbosity
+    # Use proper Agents SDK format for reasoning parameters
+    model_settings = ModelSettings(
+        reasoning=Reasoning(effort="high"),     # minimal | low | medium | high
+        verbosity="high"                        # low | medium | high
+    )
+    
     return Agent[RunDeps](
         name="DebtSpecialist",
         instructions=DEBT_SPECIALIST_INSTRUCTIONS,
         model="gpt-5",
-        model_settings=ModelSettings(),
+        model_settings=model_settings,
         tools=[
             # Debt analysis tools
             analyze_debt_situation,

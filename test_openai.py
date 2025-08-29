@@ -16,18 +16,18 @@ def test_openai_connection():
     try:
         client = OpenAI(api_key=api_key)
         
-        # Test with a simple request
-        print("Testing GPS-5 connection...")
-        response = client.chat.completions.create(
-            model="gps-5",
-            messages=[
-                {"role": "user", "content": "Say 'Hello' in one word."}
-            ],
-            max_tokens=10,
-            timeout=30  # 30 second timeout
+        # Test GPT-5 with Responses API (text verbosity and reasoning parameters)
+        print("Testing GPT-5 with Responses API...")
+        response = client.responses.create(
+            model="gpt-5",
+            input="Say 'Hello' in one word.",
+            text={"verbosity": "high"},      # high | medium | low
+            reasoning={"effort": "high"}     # high | medium | low
         )
         
-        print(f"SUCCESS: {response.choices[0].message.content}")
+        print(f"SUCCESS: {response.output_text}")
+        if hasattr(response, 'reasoning_text') and response.reasoning_text:
+            print(f"Reasoning: {response.reasoning_text[:100]}...")
         return True
         
     except Exception as e:

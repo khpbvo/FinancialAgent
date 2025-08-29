@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from agents import Agent, ModelSettings, function_tool, RunContextWrapper
+from openai.types.shared import Reasoning
 from ..context import RunDeps
 from ..tools.goals import create_goal, update_goal_progress, check_goals, suggest_savings_plan, complete_goal, pause_goal
 
@@ -557,11 +558,18 @@ async def optimize_goal_strategy(
 def build_goal_agent() -> Agent[RunDeps]:
     """Build the Goal Achievement Specialist Agent."""
     
+    # Configure ModelSettings for GPT-5 with reasoning and text verbosity
+    # Use proper Agents SDK format for reasoning parameters
+    model_settings = ModelSettings(
+        reasoning=Reasoning(effort="high"),     # minimal | low | medium | high
+        verbosity="high"                        # low | medium | high
+    )
+    
     return Agent[RunDeps](
         name="GoalSpecialist",
         instructions=GOAL_SPECIALIST_INSTRUCTIONS,
-        model="gps-5",
-        model_settings=ModelSettings(),
+        model="gpt-5",
+        model_settings=model_settings,
         tools=[
             # Core goal tools
             create_goal,

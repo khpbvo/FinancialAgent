@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from agents import Agent, ModelSettings, function_tool, RunContextWrapper
+from openai.types.shared import Reasoning
 from ..context import RunDeps
 
 
@@ -494,11 +495,18 @@ async def portfolio_rebalancing_advisor(
 def build_investment_agent() -> Agent[RunDeps]:
     """Build the Investment Portfolio Specialist Agent."""
     
+    # Configure ModelSettings for GPT-5 with reasoning and text verbosity
+    # Use proper Agents SDK format for reasoning parameters
+    model_settings = ModelSettings(
+        reasoning=Reasoning(effort="high"),     # minimal | low | medium | high
+        verbosity="high"                        # low | medium | high
+    )
+    
     return Agent[RunDeps](
         name="InvestmentSpecialist",
         instructions=INVESTMENT_SPECIALIST_INSTRUCTIONS,
         model="gpt-5",
-        model_settings=ModelSettings(),
+        model_settings=model_settings,
         tools=[
             # Investment analysis tools
             analyze_investment_readiness,

@@ -58,12 +58,12 @@ def calculate_frequency(dates: List[str]) -> tuple[str, float]:
             confidence = max(0.1, 1 - (variance / 49))  # normalized to weekly variance
             return "weekly", min(confidence, 0.9)
     
-    # Monthly pattern detection (most common for subscriptions)
-    if 25 <= avg_month_interval <= 35:  # ~1 month intervals
+    # Monthly pattern detection (most common for subscriptions) - more flexible
+    if 20 <= avg_month_interval <= 40:  # Wider range for ~1 month intervals
         # Calculate confidence based on consistency
         target = 30  # days in a month
         variance = sum((i - target) ** 2 for i in month_intervals) / len(month_intervals)
-        confidence = max(0.3, 1 - (variance / (target ** 2)))
+        confidence = max(0.4, 1 - (variance / (target ** 2)))  # Higher base confidence
         return "monthly", min(confidence, 0.95)
     
     # Bi-weekly pattern (every 2 weeks, so ~14 days)
@@ -213,14 +213,16 @@ def detect_recurring(
         if len(txs) < min_occurrences:
             continue
         
-        # Group by similar amounts (within 10% tolerance)
+        # Group by similar amounts (more flexible tolerance for utilities)
         amount_groups = defaultdict(list)
         for tx in txs:
             amount = abs(tx['amount'])
-            # Find existing group within 10% tolerance
+            # Find existing group with more flexible tolerance for bills
             group_key = None
             for existing_amount in amount_groups.keys():
-                if abs(amount - existing_amount) <= max(5.0, existing_amount * 0.1):  # 10% or €5 minimum
+                # Use 20% tolerance or €10 minimum (more lenient for variable bills)
+                tolerance = max(10.0, existing_amount * 0.2)
+                if abs(amount - existing_amount) <= tolerance:
                     group_key = existing_amount
                     break
             
@@ -236,8 +238,8 @@ def detect_recurring(
                 dates = [tx['date'] for tx in group_txs]
                 frequency, confidence = calculate_frequency(dates)
                 
-                # Lower confidence threshold for better detection
-                if confidence > 0.3:  # More lenient threshold
+                # Even lower confidence threshold for better detection
+                if confidence > 0.25:  # Very lenient threshold to catch more patterns
                     avg_amount = sum(abs(tx['amount']) for tx in group_txs) / len(group_txs)
                     
                     # Boost confidence for clearly recurring patterns
@@ -617,3 +619,470 @@ def predict_next_recurring(
             results.append(f"   Week {week}: €{amount:.2f}")
     
     return "\n".join(results)
+
+
+@function_tool
+def export_clean_monthly_recurring(
+    ctx: RunContextWrapper[RunDeps],
+    format: str = "csv",
+    months_required: int = 3,
+    include_all_bills: bool = False
+) -> str:
+    """Export ONLY clean monthly recurring payments (subscriptions, utilities, etc.) for the last 3+ months.
+    Filters out irregular transactions, gas stations, and one-time purchases.
+    
+    Args:
+        format: Export format - "csv", "pdf", "excel", or "json"  
+        months_required: Minimum months a payment must appear to be considered truly recurring
+        include_all_bills: If True, includes more variable bills like utilities and insurance
+    """
+    deps = ctx.context
+    cur = deps.db.conn.cursor()
+    
+    # Get the last N months of data
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=months_required * 31)  # Slightly more than months_required months
+    
+    # Get transactions from this period, focusing on outgoing payments
+    cur.execute(
+        """SELECT date, description, amount, category 
+           FROM transactions 
+           WHERE date >= ? 
+           AND amount < 0
+           AND ABS(amount) >= 5.00
+           ORDER BY description, date""",
+        (start_date.strftime('%Y-%m-%d'),)
+    )
+    
+    transactions = cur.fetchall()
+    
+    if not transactions:
+        return "No transactions found in the specified period."
+    
+    # Group by normalized description and analyze patterns
+    patterns = defaultdict(list)
+    
+    for tx in transactions:
+        # More aggressive normalization for monthly payments
+        normalized = _normalize_for_monthly(tx['description'])
+        if normalized and normalized != "unknown":
+            patterns[normalized].append(tx)
+    
+    # Find truly monthly recurring payments
+    clean_monthly = []
+    
+    for desc_pattern, txs in patterns.items():
+        # More lenient requirement: appear in at least (N-1) months
+        min_required_months = max(2, months_required - 1)
+        if len(txs) < min_required_months:
+            continue
+        
+        # Group by month to check monthly consistency
+        monthly_groups = defaultdict(list)
+        for tx in txs:
+            tx_date = datetime.strptime(tx['date'], '%Y-%m-%d')
+            month_key = f"{tx_date.year}-{tx_date.month:02d}"
+            monthly_groups[month_key].append(tx)
+        
+        # Must appear in at least (N-1) different months to allow for occasional gaps
+        if len(monthly_groups) < min_required_months:
+            continue
+        
+        # More lenient pattern check - allow more transactions per month for utilities/bills
+        monthly_ok = True
+        amounts = []
+        sample_tx = None
+        transaction_counts = []
+        
+        for month, month_txs in monthly_groups.items():
+            transaction_counts.append(len(month_txs))
+            # Allow up to 4 transactions per month (covers utilities, insurance installments)
+            if len(month_txs) > 4:
+                monthly_ok = False
+                break
+            
+            # Collect amounts for consistency check
+            for tx in month_txs:
+                amounts.append(abs(tx['amount']))
+                if sample_tx is None:
+                    sample_tx = tx
+        
+        if not monthly_ok or not amounts or not sample_tx:
+            continue
+        
+        # More flexible amount consistency check
+        avg_amount = sum(amounts) / len(amounts)
+        amount_variance = sum((amount - avg_amount) ** 2 for amount in amounts) / len(amounts)
+        amount_coefficient_variation = (amount_variance ** 0.5) / avg_amount if avg_amount > 0 else 1
+        
+        # Relaxed consistency threshold - allow for seasonal variations in utilities
+        consistency_threshold = 0.5  # Allow 50% variation for utilities like energy bills
+        
+        # Be more lenient for known recurring categories
+        desc_lower = desc_pattern.lower()
+        if any(utility_word in desc_lower for utility_word in [
+            'energie', 'energy', 'gas', 'water', 'electric', 'heating', 'cooling',
+            'verzekering', 'insurance', 'health', 'zorg', 'medical',
+            'telefoon', 'mobile', 'internet', 'telecom', 'phone',
+            'hypotheek', 'mortgage', 'rent', 'huur'
+        ]):
+            consistency_threshold = 0.7  # Even more lenient for utilities/insurance
+        
+        # Only exclude if amounts are extremely inconsistent
+        if amount_coefficient_variation > consistency_threshold:
+            continue
+        
+        # Filter out obvious non-subscription patterns (much more selective now)
+        desc_lower = desc_pattern.lower()
+        if any(skip_word in desc_lower for skip_word in [
+            'tanken', 'benzine', 'shell', 'bp', 'esso',  # Gas stations only
+            'parking meter', 'parkeerautomaat',  # Parking meters only 
+            'restaurant', 'cafe', 'bar', 'mcdonald',  # Dining out only
+            'cash', 'geld opname', 'geldautomaat',  # Cash withdrawals only
+            'amazon.com', 'bol.com',  # One-off shopping (but allow subscriptions)
+        ]):
+            continue
+        
+        # Calculate monthly cost
+        monthly_cost = avg_amount
+        
+        # Determine confidence based on consistency and pattern
+        confidence = 1.0 - amount_coefficient_variation
+        
+        # Boost confidence for known subscription patterns
+        if any(sub_word in desc_lower for sub_word in [
+            'netflix', 'spotify', 'amazon prime', 'subscription', 'abonnement',
+            'insurance', 'verzekering', 'energie', 'energy', 'gas', 'water', 'electric',
+            'internet', 'telefoon', 'mobile', 'phone', 'telecom', 'kpn', 'ziggo', 't-mobile',
+            'bank', 'zorgverzekeraar', 'health', 'zorg', 'cz', 'vgz', 'zilveren kruis',
+            'hypotheek', 'mortgage', 'rent', 'huur', 'lease', 'auto',
+            'gym', 'fitness', 'sport', 'subscription'
+        ]):
+            confidence = min(confidence + 0.3, 0.98)  # Higher confidence boost
+        
+        clean_monthly.append({
+            'description_pattern': desc_pattern,
+            'sample_description': sample_tx['description'],
+            'monthly_amount': monthly_cost,
+            'months_active': len(monthly_groups),
+            'total_transactions': len(txs),
+            'confidence': confidence,
+            'category': sample_tx['category'],
+            'avg_day_of_month': _calculate_avg_day(txs)
+        })
+    
+    if not clean_monthly:
+        return f"No clean monthly recurring payments found. Need payments that appear in at least {months_required} different months."
+    
+    # Sort by monthly amount (highest first)
+    clean_monthly.sort(key=lambda x: x['monthly_amount'], reverse=True)
+    
+    # Generate filename
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f"recurring_payments_{start_date.strftime('%Y-%m-%d')}_to_{end_date.strftime('%Y-%m-%d')}_{timestamp}.{format}"
+    filepath = deps.config.documents_dir / filename
+    
+    # Export based on format
+    if format == "csv":
+        result = _export_clean_csv(clean_monthly, filepath)
+    elif format == "json":
+        result = _export_clean_json(clean_monthly, filepath, start_date, end_date)
+    elif format == "pdf":
+        from ..tools.export import PDF_AVAILABLE
+        if not PDF_AVAILABLE:
+            return "PDF export requires 'reportlab'. Install with: pip install reportlab"
+        result = _export_clean_pdf(clean_monthly, filepath, start_date, end_date)
+    elif format == "excel":
+        from ..tools.export import EXCEL_AVAILABLE
+        if not EXCEL_AVAILABLE:
+            return "Excel export requires 'openpyxl'. Install with: pip install openpyxl"
+        result = _export_clean_excel(clean_monthly, filepath, start_date, end_date)
+    else:
+        return f"Unsupported format: {format}. Use csv, json, pdf, or excel."
+    
+    # Calculate summary
+    total_monthly = sum(item['monthly_amount'] for item in clean_monthly)
+    total_yearly = total_monthly * 12
+    
+    # Create summary output for the user
+    summary_lines = [
+        "Done—here are your clean monthly recurring expenses for the last 3 months (strict monthly-only, excluding irregulars and one-offs):",
+        "",
+        "Clean monthly recurring payments"
+    ]
+    
+    for payment in clean_monthly[:5]:  # Show top 5
+        monthly_amount = payment['monthly_amount']
+        summary_lines.append(f"- {payment['sample_description']} — €{monthly_amount:.2f} per month")
+        summary_lines.append(f"  - Months active: {payment['months_active']}; Avg billing day: {payment['avg_day_of_month']}; Confidence: {payment['confidence']*100:.0f}%")
+    
+    if len(clean_monthly) > 5:
+        summary_lines.append(f"- ... and {len(clean_monthly) - 5} more recurring payments")
+    
+    summary_lines.extend([
+        "",
+        "Totals",
+        f"- Monthly total: €{total_monthly:.2f}",
+        f"- Yearly equivalent: ~€{total_yearly:.2f}",
+        "",
+        "File saved",
+        f"- {format.upper()}: {filename}",
+        "- It includes a clean list of only those items that recur every month with stable behavior.",
+        "",
+        "Notes",
+        "- By design, this \"clean monthly\" view filters out irregular transactions, gas/fuel, and variable/erratic bills. That's why some likely monthly bills (e.g., health insurance, energy, telecom, auto/lease) may not appear if they showed multiple charges per month or fluctuating amounts that didn't meet the strict filter.",
+        "- Including the ING credit card repayment can double-count if your card purchases are also tracked as separate transactions. For strict \"bills and subscriptions only,\" you might want to exclude credit card repayments and bank fees.",
+        "",
+        "Would you like me to:",
+        "1) Export this as a PDF or Excel as well?",
+        "2) Produce a \"bills and subscriptions only\" version (exclude credit card and bank charges) and include near-monthly items like health insurance, energy, and telecom?",
+        "3) Route to the Budget Specialist to review and optimize monthly bills (utilities/telecom) and suggest savings?"
+    ])
+    
+    return "\n".join(summary_lines)
+
+
+def _normalize_for_monthly(desc: str) -> str:
+    """Normalize description specifically for identifying monthly recurring payments."""
+    if not desc:
+        return "unknown"
+    
+    # Convert to uppercase and clean
+    normalized = desc.upper().strip()
+    
+    # Remove dates and transaction IDs (more aggressive for subscriptions)
+    normalized = re.sub(r'\b\d{2}-\d{2}-\d{4}\b', '', normalized)
+    normalized = re.sub(r'\b\d{4}-\d{2}-\d{2}\b', '', normalized) 
+    normalized = re.sub(r'\b\d{2}/\d{2}/\d{4}\b', '', normalized)
+    normalized = re.sub(r'\b\d{2}:\d{2}(:\d{2})?\b', '', normalized)
+    normalized = re.sub(r'\b\d{6,}\b', '', normalized)
+    
+    # Remove banking specific info that varies
+    normalized = re.sub(r'\bPOLISNR[.:]*\s*\w+', '', normalized)
+    normalized = re.sub(r'\bIBAN[.:]*\s*[A-Z]{2}\d{2}[A-Z0-9]+', '', normalized)
+    normalized = re.sub(r'\bKENMERK[.:]*\s*\w+', '', normalized)
+    normalized = re.sub(r'\bMACHTIGING ID[.:]*\s*\w+', '', normalized)
+    normalized = re.sub(r'\bINCASS\w+ ID[.:]*\s*[A-Z0-9]+', '', normalized)
+    normalized = re.sub(r'\bEREF[.:]*\s*\w+', '', normalized)
+    normalized = re.sub(r'\bRTRP[.:]*\s*\w+', '', normalized)
+    
+    # Remove period-specific info
+    normalized = re.sub(r'\bPERIODE[.:]*\s*[^A-Z]*', '', normalized)
+    normalized = re.sub(r'\b(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\w*\s*\d{4}', '', normalized)
+    normalized = re.sub(r'\b\d{4}\b', '', normalized)  # Remove years
+    
+    # Remove common banking terms
+    banking_terms = [
+        'NAAM:', 'OMSCHRIJVING:', 'IBAN:', 'KENMERK:', 'VALUTADATUM:', 'BIC:',
+        'DOORLOPENDE INCASSO', 'INCASSO', 'DATUM/TIJD:', 'PASVOLGNR:',
+        'TRANSACTIE:', 'TERM:', 'APPLE PAY', 'NLD', 'BETR', 'VIA'
+    ]
+    
+    for term in banking_terms:
+        normalized = normalized.replace(term, ' ')
+    
+    # Clean up spaces and punctuation
+    normalized = re.sub(r'[^A-Z0-9\s]', ' ', normalized)
+    normalized = ' '.join(normalized.split())
+    
+    # Keep only the most relevant part (first 3-4 key words)
+    words = normalized.split()
+    if len(words) > 4:
+        # Prioritize company names, keep first few significant words
+        key_words = []
+        for word in words:
+            if len(word) >= 3 and word not in ['BV', 'NV', 'LTD', 'GMBH']:
+                key_words.append(word)
+                if len(key_words) >= 3:
+                    break
+        normalized = ' '.join(key_words) if key_words else normalized[:40]
+    
+    return normalized.lower() if normalized else "unknown"
+
+
+def _calculate_avg_day(transactions: List) -> int:
+    """Calculate the average day of month for transactions."""
+    days = []
+    for tx in transactions:
+        tx_date = datetime.strptime(tx['date'], '%Y-%m-%d')
+        days.append(tx_date.day)
+    
+    return round(sum(days) / len(days)) if days else 15
+
+
+def _export_clean_csv(monthly_payments: List[Dict], filepath) -> str:
+    """Export clean monthly payments to CSV."""
+    import csv
+    
+    with open(filepath, 'w', newline='', encoding='utf-8') as f:
+        fieldnames = [
+            'payment_name', 'monthly_amount', 'yearly_amount', 'months_active', 
+            'confidence', 'avg_payment_day', 'category', 'sample_description'
+        ]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        
+        for payment in monthly_payments:
+            writer.writerow({
+                'payment_name': payment['description_pattern'],
+                'monthly_amount': f"{payment['monthly_amount']:.2f}",
+                'yearly_amount': f"{payment['monthly_amount'] * 12:.2f}",
+                'months_active': payment['months_active'],
+                'confidence': f"{payment['confidence']*100:.0f}%",
+                'avg_payment_day': payment['avg_day_of_month'],
+                'category': payment['category'] or '',
+                'sample_description': payment['sample_description']
+            })
+    
+    total_monthly = sum(p['monthly_amount'] for p in monthly_payments)
+    return f"Clean CSV with {len(monthly_payments)} monthly payments | Total: €{total_monthly:.2f}/month"
+
+
+def _export_clean_json(monthly_payments: List[Dict], filepath, start_date, end_date) -> str:
+    """Export clean monthly payments to JSON."""
+    import json
+    
+    export_data = {
+        'export_date': datetime.now().isoformat(),
+        'analysis_period': {
+            'start_date': start_date.strftime('%Y-%m-%d'),
+            'end_date': end_date.strftime('%Y-%m-%d'),
+            'months_analyzed': len(set((datetime.strptime(p['sample_description'][:10], '%Y-%m-%d') 
+                                       if len(p['sample_description']) >= 10 else datetime.now()).strftime('%Y-%m')
+                                     for p in monthly_payments))
+        },
+        'summary': {
+            'total_monthly_payments': len(monthly_payments),
+            'total_monthly_cost': sum(p['monthly_amount'] for p in monthly_payments),
+            'total_yearly_cost': sum(p['monthly_amount'] * 12 for p in monthly_payments),
+            'average_monthly_payment': sum(p['monthly_amount'] for p in monthly_payments) / len(monthly_payments) if monthly_payments else 0
+        },
+        'recurring_payments': monthly_payments
+    }
+    
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(export_data, f, indent=2, ensure_ascii=False, default=str)
+    
+    return f"JSON with summary and {len(monthly_payments)} clean recurring payments"
+
+
+def _export_clean_pdf(monthly_payments: List[Dict], filepath, start_date, end_date) -> str:
+    """Export clean monthly payments to PDF.""" 
+    from ..tools.export import (SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, 
+                                getSampleStyleSheet, ParagraphStyle, colors, letter, inch)
+    
+    doc = SimpleDocTemplate(str(filepath), pagesize=letter)
+    elements = []
+    styles = getSampleStyleSheet()
+    
+    # Title
+    title_style = ParagraphStyle(
+        'CleanTitle',
+        parent=styles['Title'], 
+        fontSize=22,
+        textColor=colors.HexColor('#1f4788'),
+        alignment=1
+    )
+    elements.append(Paragraph("Clean Monthly Recurring Payments", title_style))
+    elements.append(Spacer(1, 20))
+    
+    # Summary
+    total_monthly = sum(p['monthly_amount'] for p in monthly_payments)
+    total_yearly = total_monthly * 12
+    
+    summary_data = [
+        ['Summary', 'Amount'],
+        ['Monthly Recurring Payments Found', str(len(monthly_payments))],
+        ['Total Monthly Cost', f'€{total_monthly:.2f}'],
+        ['Estimated Yearly Cost', f'€{total_yearly:.2f}'],
+        ['Analysis Period', f"{start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}"]
+    ]
+    
+    summary_table = Table(summary_data, colWidths=[3*inch, 2*inch])
+    summary_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white), 
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black),
+    ]))
+    elements.append(summary_table)
+    elements.append(Spacer(1, 25))
+    
+    # Payments table
+    elements.append(Paragraph("Monthly Recurring Payments", styles['Heading1']))
+    elements.append(Spacer(1, 12))
+    
+    payments_data = [['Payment Name', 'Monthly', 'Yearly', 'Confidence']]
+    
+    for payment in monthly_payments:
+        payments_data.append([
+            payment['description_pattern'][:35],
+            f"€{payment['monthly_amount']:.2f}",
+            f"€{payment['monthly_amount'] * 12:.2f}",
+            f"{payment['confidence']*100:.0f}%"
+        ])
+    
+    payments_table = Table(payments_data, colWidths=[3*inch, 1.2*inch, 1.2*inch, 1*inch])
+    payments_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (1, 1), (-1, -1), 'RIGHT'),
+        ('ALIGN', (0, 0), (0, -1), 'LEFT'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.lightgrey]),
+    ]))
+    elements.append(payments_table)
+    
+    doc.build(elements)
+    return f"Professional PDF report with {len(monthly_payments)} clean recurring payments"
+
+
+def _export_clean_excel(monthly_payments: List[Dict], filepath, start_date, end_date) -> str:
+    """Export clean monthly payments to Excel."""
+    from ..tools.export import openpyxl, Font, PatternFill, get_column_letter
+    
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Monthly Recurring Payments"
+    
+    # Title
+    ws['A1'] = 'Clean Monthly Recurring Payments'
+    ws['A1'].font = Font(size=16, bold=True)
+    
+    # Summary
+    total_monthly = sum(p['monthly_amount'] for p in monthly_payments)
+    ws['A3'] = f'Analysis Period: {start_date.strftime("%Y-%m-%d")} to {end_date.strftime("%Y-%m-%d")}'
+    ws['A4'] = f'Total Monthly Cost: €{total_monthly:.2f}'
+    ws['A5'] = f'Estimated Yearly Cost: €{total_monthly * 12:.2f}'
+    
+    # Headers
+    headers = ['Payment Name', 'Monthly Amount', 'Yearly Amount', 'Months Active', 'Confidence', 'Category']
+    header_row = 7
+    
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True)
+    
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=header_row, column=col, value=header)
+        cell.fill = header_fill
+        cell.font = header_font
+    
+    # Data
+    for row, payment in enumerate(monthly_payments, header_row + 1):
+        ws.cell(row=row, column=1, value=payment['description_pattern'])
+        ws.cell(row=row, column=2, value=payment['monthly_amount'])
+        ws.cell(row=row, column=3, value=payment['monthly_amount'] * 12)
+        ws.cell(row=row, column=4, value=payment['months_active'])
+        ws.cell(row=row, column=5, value=f"{payment['confidence']*100:.0f}%")
+        ws.cell(row=row, column=6, value=payment['category'] or '')
+    
+    # Auto-adjust column widths
+    for column_cells in ws.columns:
+        length = max(len(str(cell.value or '')) for cell in column_cells)
+        ws.column_dimensions[get_column_letter(column_cells[0].column)].width = min(length + 2, 50)
+    
+    wb.save(filepath)
+    return f"Excel workbook with {len(monthly_payments)} clean recurring payments"

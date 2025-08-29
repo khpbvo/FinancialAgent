@@ -1,5 +1,6 @@
 from __future__ import annotations
 from agents import Agent, ModelSettings, function_tool, RunContextWrapper
+from openai.types.shared import Reasoning
 from ..context import RunDeps
 from ..tools.export import generate_tax_report, export_transactions
 
@@ -301,11 +302,18 @@ async def suggest_tax_timing(
 def build_tax_agent() -> Agent[RunDeps]:
     """Build the Tax Specialist Agent."""
     
+    # Configure ModelSettings for GPT-5 with reasoning and text verbosity
+    # Use proper Agents SDK format for reasoning parameters
+    model_settings = ModelSettings(
+        reasoning=Reasoning(effort="high"),     # minimal | low | medium | high
+        verbosity="high"                        # low | medium | high
+    )
+    
     return Agent[RunDeps](
         name="TaxSpecialist",
         instructions=TAX_SPECIALIST_INSTRUCTIONS,
-        model="gps-5",  # Use same model as main agent
-        model_settings=ModelSettings(),
+        model="gpt-5",  # Use same model as main agent
+        model_settings=model_settings,
         tools=[
             # Core tax tools
             generate_tax_report,

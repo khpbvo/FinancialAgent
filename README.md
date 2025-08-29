@@ -17,5 +17,5 @@ A Python agent that analyzes and summarizes financial documents (PDF/CSV) and st
    - `financial-agent`  
 
 ## Notes
-- Model: set via env `FIN_AGENT_MODEL` (defaults to `gps-5` as per request).
+- Model: set via env `FIN_AGENT_MODEL` (defaults to `gpt-5` as per request).
 - DB path: `financial_agent/db/finance.db` by default.

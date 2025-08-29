@@ -1,0 +1,2 @@
+# This directory stores debug logs for Financial Agent
+# Logs are automatically rotated and can be analyzed using the debug_analyzer module

@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import List, Dict, Optional
 from agents import Agent, ModelSettings, function_tool, RunContextWrapper
+from openai.types.shared import Reasoning
 from ..context import RunDeps
 from ..tools.budgets import set_budget, check_budget, list_budgets, suggest_budgets, delete_budget
 from ..tools.recurring import detect_recurring, list_subscriptions, analyze_subscription_value
@@ -513,11 +514,18 @@ async def budget_alert_system(
 def build_budget_agent() -> Agent[RunDeps]:
     """Build the Budget Specialist Agent."""
     
+    # Configure ModelSettings for GPT-5 with reasoning and text verbosity
+    # Use proper Agents SDK format for reasoning parameters
+    model_settings = ModelSettings(
+        reasoning=Reasoning(effort="high"),     # minimal | low | medium | high
+        verbosity="high"                        # low | medium | high
+    )
+    
     return Agent[RunDeps](
         name="BudgetSpecialist", 
         instructions=BUDGET_SPECIALIST_INSTRUCTIONS,
-        model="gps-5",
-        model_settings=ModelSettings(),
+        model="gpt-5",
+        model_settings=model_settings,
         tools=[
             # Core budget tools
             set_budget,

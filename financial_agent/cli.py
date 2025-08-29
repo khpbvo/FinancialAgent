@@ -6,7 +6,13 @@ import sys
 from typing import Optional
 
 from agents import Runner, ItemHelpers, SQLiteSession
-from openai.types.responses import ResponseTextDeltaEvent
+from openai.types.responses import (
+    ResponseTextDeltaEvent, 
+    ResponseReasoningTextDeltaEvent,
+    ResponseReasoningTextDoneEvent,
+    ResponseReasoningSummaryTextDeltaEvent,
+    ResponseReasoningSummaryTextDoneEvent
+)
 from pathlib import Path
 
 from .agent import build_agent, build_deps
@@ -114,8 +120,12 @@ Available commands:
                 print(result)
                 # Also clear current session if active
                 if session:
-                    await session.clear_session()
-                    print("🧹 Current conversation history also cleared")
+                    try:
+                        await session.clear_session()
+                        print("🧹 Current conversation history also cleared")
+                    except Exception:
+                        # Session table might not exist after clearing
+                        pass
                 continue
             
             if user_input.lower() == 'clear-all':
@@ -123,8 +133,12 @@ Available commands:
                 print(result)
                 # Also clear current session if active
                 if session:
-                    await session.clear_session()
-                    print("🧹 Current conversation history also cleared")
+                    try:
+                        await session.clear_session()
+                        print("🧹 Current conversation history also cleared")
+                    except Exception:
+                        # Session table might not exist after clearing
+                        pass
                 continue
             
             if user_input.lower() == 'history' and session:
@@ -148,25 +162,44 @@ Available commands:
                 continue
             
             # Stream the response with session
-            print("\n🤖 Thinking...")
+            print("\n🤖 Processing your request...")
             result = Runner.run_streamed(agent, input=user_input, context=deps, session=session)
             
             current_message = ""
             show_progress = True
             reasoning_started = False
+            reasoning_text = ""
             
             async for event in result.stream_events():
                 if event.type == "raw_response_event":
-                    # Handle reasoning/thinking events if available
-                    if hasattr(event.data, 'type') and 'reasoning' in str(event.data.type).lower():
+                    # Handle GPT-5 reasoning text streaming
+                    if isinstance(event.data, ResponseReasoningTextDeltaEvent):
                         if not reasoning_started:
-                            print("\n🧠 Agent reasoning: ", end="", flush=True)
+                            print("\n🧠 Agent reasoning (thinking step-by-step):\n", end="", flush=True)
+                            print("─" * 50, flush=True)
                             reasoning_started = True
-                        if hasattr(event.data, 'delta'):
-                            print(event.data.delta, end="", flush=True)
-                    # Handle text deltas
+                        print(event.data.delta, end="", flush=True)
+                        reasoning_text += event.data.delta
+                    
+                    # Handle reasoning completion
+                    elif isinstance(event.data, ResponseReasoningTextDoneEvent):
+                        if reasoning_started:
+                            print("\n" + "─" * 50)
+                            print("✅ Reasoning complete\n", flush=True)
+                    
+                    # Handle reasoning summary (if available)
+                    elif isinstance(event.data, ResponseReasoningSummaryTextDeltaEvent):
+                        if not reasoning_started:
+                            print("\n📊 Reasoning summary: ", end="", flush=True)
+                        print(event.data.delta, end="", flush=True)
+                    
+                    # Handle normal text response
                     elif isinstance(event.data, ResponseTextDeltaEvent):
-                        if show_progress:
+                        if reasoning_started and show_progress:
+                            # Add separator after reasoning
+                            print("\n📝 Final Response:\n" + "=" * 50, flush=True)
+                            show_progress = False
+                        elif show_progress:
                             print("\n📝 Response:", end=" ", flush=True)
                             show_progress = False
                         print(event.data.delta, end="", flush=True)
@@ -222,11 +255,6 @@ Available commands:
                                 print(f"\n📝 Response: {message_text}")
                             except Exception:
                                 print(f"\n📝 Response: {event.item}")
-                    
-                    # Handle reasoning items if they exist
-                    elif event.item.type == "reasoning_item" and hasattr(event.item, 'content'):
-                        reasoning_content = str(event.item.content)[:100]
-                        print(f"\n🧠 Agent reasoning: {reasoning_content}...")
                 
                 elif event.type == "agent_updated_stream_event":
                     print(f"\n🔄 Agent updated: {event.new_agent.name}")
@@ -264,19 +292,38 @@ async def streaming_mode(agent, deps, user_input: str, use_session: bool = False
     current_message = ""
     show_progress = True
     reasoning_started = False
+    reasoning_text = ""
     
     async for event in result.stream_events():
         if event.type == "raw_response_event":
-            # Handle reasoning/thinking events if available
-            if hasattr(event.data, 'type') and 'reasoning' in str(event.data.type).lower():
+            # Handle GPT-5 reasoning text streaming
+            if isinstance(event.data, ResponseReasoningTextDeltaEvent):
                 if not reasoning_started:
-                    print("\n🧠 Agent reasoning: ", end="", flush=True)
+                    print("\n🧠 Agent reasoning (thinking step-by-step):\n", end="", flush=True)
+                    print("─" * 50, flush=True)
                     reasoning_started = True
-                if hasattr(event.data, 'delta'):
-                    print(event.data.delta, end="", flush=True)
-            # Handle text deltas
+                print(event.data.delta, end="", flush=True)
+                reasoning_text += event.data.delta
+            
+            # Handle reasoning completion
+            elif isinstance(event.data, ResponseReasoningTextDoneEvent):
+                if reasoning_started:
+                    print("\n" + "─" * 50)
+                    print("✅ Reasoning complete\n", flush=True)
+            
+            # Handle reasoning summary (if available)
+            elif isinstance(event.data, ResponseReasoningSummaryTextDeltaEvent):
+                if not reasoning_started:
+                    print("\n📊 Reasoning summary: ", end="", flush=True)
+                print(event.data.delta, end="", flush=True)
+            
+            # Handle normal text response
             elif isinstance(event.data, ResponseTextDeltaEvent):
-                if show_progress:
+                if reasoning_started and show_progress:
+                    # Add separator after reasoning
+                    print("\n📝 Final Response:\n" + "=" * 50, flush=True)
+                    show_progress = False
+                elif show_progress:
                     print("📝 Response: ", end="", flush=True)
                     show_progress = False
                 print(event.data.delta, end="", flush=True)
@@ -332,11 +379,6 @@ async def streaming_mode(agent, deps, user_input: str, use_session: bool = False
                         print(f"📝 Response: {message_text}")
                     except Exception:
                         print(f"📝 Response: {event.item}")
-            
-            # Handle reasoning items if they exist
-            elif event.item.type == "reasoning_item" and hasattr(event.item, 'content'):
-                reasoning_content = str(event.item.content)[:100]
-                print(f"\n🧠 Agent reasoning: {reasoning_content}...")
         
         elif event.type == "agent_updated_stream_event":
             print(f"\n🔄 Agent updated: {event.new_agent.name}")
@@ -348,22 +390,22 @@ async def streaming_mode(agent, deps, user_input: str, use_session: bool = False
 
 def clear_database() -> str:
     """Clear all data from the financial database."""
-    deps = build_deps()
-    deps.ensure_ready()
-    cursor = deps.db.conn.cursor()
-    
-    # Get counts before clearing
-    cursor.execute('SELECT COUNT(*) FROM transactions')
-    transaction_count = cursor.fetchone()[0]
-    cursor.execute('SELECT COUNT(*) FROM memories')
-    memory_count = cursor.fetchone()[0]
-    
-    # Clear all data
-    cursor.execute('DELETE FROM transactions')
-    cursor.execute('DELETE FROM memories')
-    deps.db.conn.commit()
-    
-    return f"🧹 Database cleared: {transaction_count} transactions and {memory_count} memories removed"
+    with build_deps() as deps:
+        deps.ensure_ready()
+        cursor = deps.db.conn.cursor()
+        
+        # Get counts before clearing
+        cursor.execute('SELECT COUNT(*) FROM transactions')
+        transaction_count = cursor.fetchone()[0]
+        cursor.execute('SELECT COUNT(*) FROM memories')
+        memory_count = cursor.fetchone()[0]
+        
+        # Clear all data
+        cursor.execute('DELETE FROM transactions')
+        cursor.execute('DELETE FROM memories')
+        deps.db.conn.commit()
+        
+        return f"🧹 Database cleared: {transaction_count} transactions and {memory_count} memories removed"
 
 
 def clear_sessions() -> str:

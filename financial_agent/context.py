@@ -11,7 +11,7 @@ DOCUMENTS_DIR = Path(__file__).parents[1] / "documents"
 class AppConfig(BaseModel):
     """Application configuration with validation."""
     openai_api_key: str = Field(description="OpenAI API key")
-    model: str = Field(default="gps-5", description="Model to use")
+    model: str = Field(default="gpt-5", description="Model to use")
     db_path: Path = Field(default=DEFAULT_DB_PATH, description="Database path")
     documents_dir: Path = Field(default=DOCUMENTS_DIR, description="Documents directory")
     
@@ -106,12 +106,44 @@ class DB:
             """
         )
         
+        # Create agent_messages table required by Agents SDK for session management
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id TEXT NOT NULL,
+                role TEXT NOT NULL, -- user|assistant|system|tool
+                content TEXT,
+                tool_calls TEXT, -- JSON array of tool calls
+                tool_call_id TEXT,
+                name TEXT, -- tool name for tool messages
+                created_at TEXT DEFAULT (datetime('now')),
+                metadata TEXT -- JSON for additional data
+            )
+            """
+        )
+        
+        # Create agent_sessions table for session management
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_sessions (
+                session_id TEXT PRIMARY KEY,
+                created_at TEXT DEFAULT (datetime('now')),
+                updated_at TEXT DEFAULT (datetime('now')),
+                metadata TEXT -- JSON for session metadata
+            )
+            """
+        )
+        
         # Add indexes for performance
         cur.execute("CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_transactions_amount ON transactions(amount)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_budgets_category ON budgets(category)")
         cur.execute("CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_agent_messages_session ON agent_messages(session_id)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_agent_messages_created ON agent_messages(created_at)")
+        cur.execute("CREATE INDEX IF NOT EXISTS idx_agent_sessions_updated ON agent_sessions(updated_at)")
         
         self.conn.commit()
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
 from typing import Dict, List, Optional
 from agents import Agent, ModelSettings, function_tool, RunContextWrapper, Runner
+from openai.types.shared import Reasoning
 from .context import RunDeps
+from .logging_utils import get_logger, log_tool_calls
 from .specialists.tax_agent import build_tax_agent
 from .specialists.budget_agent import build_budget_agent  
 from .specialists.goal_agent import build_goal_agent
@@ -15,6 +17,54 @@ from .tools.memory import list_memories
 from .tools.summarize import summarize_file, summarize_overview
 from .tools.records import add_transaction
 from .tools.export import export_transactions, export_recurring_payments
+from .tools.recurring import export_clean_monthly_recurring
+# from .debug_analyzer import create_debug_tool  # TODO: Fix type issues
+
+
+async def _logged_handoff(
+    specialist_name: str,
+    specialist_agent: Agent[RunDeps],
+    user_query: str,
+    additional_context: Optional[str],
+    deps: RunDeps,
+    emoji: str,
+    routing_reason: str
+) -> str:
+    """Helper function to execute specialist handoffs with comprehensive logging."""
+    logger = get_logger()
+    
+    # Log routing decision
+    logger.log_orchestrator_route(user_query, specialist_name, routing_reason)
+    
+    # Prepare query with context
+    full_query = user_query
+    if additional_context:
+        full_query += f"\n\nAdditional context: {additional_context}"
+    
+    # Log handoff details
+    logger.log_handoff("Orchestrator", specialist_name, {
+        "query": user_query,
+        "has_additional_context": bool(additional_context),
+        "full_query_length": len(full_query),
+        "routing_reason": routing_reason
+    })
+    
+    # Execute specialist agent with logging
+    agent_context = {
+        "handoff_from": "Orchestrator",
+        "specialist_type": specialist_name.lower().replace(" ", "_")
+    }
+    
+    try:
+        with logger.log_agent_execution(specialist_name, full_query, agent_context) as agent_id:
+            result = await Runner.run(specialist_agent, full_query, context=deps)
+            logger.log_agent_complete(agent_id, result.final_output)
+            
+        return f"{emoji} **{specialist_name} Response:**\n\n{result.final_output}"
+        
+    except Exception as e:
+        logger.log_error(f"Specialist handoff failed: {specialist_name}", error=e)
+        raise
 
 
 ORCHESTRATOR_INSTRUCTIONS = """You are the Financial Agent Orchestrator - the intelligent coordinator of specialized financial agents.
@@ -72,21 +122,15 @@ async def handoff_to_tax_specialist(
         user_query: The user's tax-related question or request
         additional_context: Any additional context to provide to the specialist
     """
-    deps = ctx.context
-    
-    # Build tax specialist
-    tax_agent = build_tax_agent()
-    
-    # Prepare query with context
-    full_query = user_query
-    if additional_context:
-        full_query += f"\n\nAdditional context: {additional_context}"
-    
-    # Run the specialist agent
-    result = await Runner.run(tax_agent, full_query, context=deps)
-    
-    # Return with specialist attribution
-    return f"🏛️ **Tax Specialist Response:**\n\n{result.final_output}"
+    return await _logged_handoff(
+        "Tax Specialist",
+        build_tax_agent(),
+        user_query,
+        additional_context,
+        ctx.context,
+        "🏛️",
+        "User query contains tax-related terms or requirements"
+    )
 
 
 @function_tool
@@ -101,21 +145,15 @@ async def handoff_to_budget_specialist(
         user_query: The user's budget/spending-related question or request
         additional_context: Any additional context to provide to the specialist
     """
-    deps = ctx.context
-    
-    # Build budget specialist
-    budget_agent = build_budget_agent()
-    
-    # Prepare query with context
-    full_query = user_query
-    if additional_context:
-        full_query += f"\n\nAdditional context: {additional_context}"
-    
-    # Run the specialist agent
-    result = await Runner.run(budget_agent, full_query, context=deps)
-    
-    # Return with specialist attribution
-    return f"💰 **Budget Specialist Response:**\n\n{result.final_output}"
+    return await _logged_handoff(
+        "Budget Specialist",
+        build_budget_agent(),
+        user_query,
+        additional_context,
+        ctx.context,
+        "💰",
+        "User query contains budget or spending analysis requirements"
+    )
 
 
 @function_tool
@@ -130,21 +168,15 @@ async def handoff_to_goal_specialist(
         user_query: The user's goal/planning-related question or request
         additional_context: Any additional context to provide to the specialist
     """
-    deps = ctx.context
-    
-    # Build goal specialist
-    goal_agent = build_goal_agent()
-    
-    # Prepare query with context
-    full_query = user_query
-    if additional_context:
-        full_query += f"\n\nAdditional context: {additional_context}"
-    
-    # Run the specialist agent
-    result = await Runner.run(goal_agent, full_query, context=deps)
-    
-    # Return with specialist attribution
-    return f"🎯 **Goal Specialist Response:**\n\n{result.final_output}"
+    return await _logged_handoff(
+        "Goal Specialist",
+        build_goal_agent(),
+        user_query,
+        additional_context,
+        ctx.context,
+        "🎯",
+        "User query contains goal setting or financial planning requirements"
+    )
 
 
 @function_tool
@@ -159,21 +191,15 @@ async def handoff_to_investment_specialist(
         user_query: The user's investment-related question or request
         additional_context: Any additional context to provide to the specialist
     """
-    deps = ctx.context
-    
-    # Build investment specialist
-    investment_agent = build_investment_agent()
-    
-    # Prepare query with context
-    full_query = user_query
-    if additional_context:
-        full_query += f"\n\nAdditional context: {additional_context}"
-    
-    # Run the specialist agent
-    result = await Runner.run(investment_agent, full_query, context=deps)
-    
-    # Return with specialist attribution
-    return f"📈 **Investment Specialist Response:**\n\n{result.final_output}"
+    return await _logged_handoff(
+        "Investment Specialist",
+        build_investment_agent(),
+        user_query,
+        additional_context,
+        ctx.context,
+        "📈",
+        "User query contains investment or portfolio analysis requirements"
+    )
 
 
 @function_tool
@@ -188,21 +214,15 @@ async def handoff_to_debt_specialist(
         user_query: The user's debt-related question or request
         additional_context: Any additional context to provide to the specialist
     """
-    deps = ctx.context
-    
-    # Build debt specialist
-    debt_agent = build_debt_agent()
-    
-    # Prepare query with context
-    full_query = user_query
-    if additional_context:
-        full_query += f"\n\nAdditional context: {additional_context}"
-    
-    # Run the specialist agent
-    result = await Runner.run(debt_agent, full_query, context=deps)
-    
-    # Return with specialist attribution
-    return f"💳 **Debt Specialist Response:**\n\n{result.final_output}"
+    return await _logged_handoff(
+        "Debt Specialist",
+        build_debt_agent(),
+        user_query,
+        additional_context,
+        ctx.context,
+        "💳",
+        "User query contains debt management or loan-related requirements"
+    )
 
 
 @function_tool
@@ -345,42 +365,69 @@ def analyze_query_intent(user_query: str) -> Dict[str, any]:
 
 def build_orchestrator_agent() -> Agent[RunDeps]:
     """Build the main orchestrator agent with handoff capabilities."""
+    logger = get_logger()
+    
+    # Configure ModelSettings for GPT-5 with reasoning and text verbosity
+    # Use proper Agents SDK format for reasoning parameters
+    model_settings = ModelSettings(
+        reasoning=Reasoning(effort="high"),     # minimal | low | medium | high
+        verbosity="high"                        # low | medium | high
+    )
+    
+    handoff_agents = [
+        build_tax_agent(),
+        build_budget_agent(),
+        build_goal_agent(),
+        build_investment_agent(),
+        build_debt_agent()
+    ]
+    
+    tools_list = [
+        # Handoff tools
+        handoff_to_tax_specialist,
+        handoff_to_budget_specialist,
+        handoff_to_goal_specialist,
+        handoff_to_investment_specialist,
+        handoff_to_debt_specialist,
+        coordinate_multi_specialist_analysis,
+        route_user_query,
+        # Core data management tools
+        ingest_csv,
+        ingest_excel,
+        list_excel_sheets,
+        ingest_pdfs,
+        list_recent_transactions,
+        search_transactions,
+        list_memories,
+        summarize_file,
+        summarize_overview,
+        add_transaction,
+        export_transactions,
+        export_recurring_payments,
+        export_clean_monthly_recurring,
+        # Debug and logging tools
+        # create_debug_tool(),  # TODO: Fix type issues
+    ]
+    
+    logger.log_agent_init("FinancialOrchestrator", {
+        "model": "gpt-5",
+        "model_settings": {
+            "reasoning_effort": "high",
+            "verbosity": "high"
+        },
+        "handoff_agents": [agent.name for agent in handoff_agents],
+        "tool_count": len(tools_list),
+        "tool_names": [getattr(tool, 'name', getattr(tool, '__name__', str(tool))) for tool in tools_list],
+        "specialist_capabilities": ["tax", "budget", "goal", "investment", "debt"]
+    })
     
     return Agent[RunDeps](
         name="FinancialOrchestrator",
         instructions=ORCHESTRATOR_INSTRUCTIONS,
-        model="gps-5",
-        model_settings=ModelSettings(),
-        handoffs=[
-            build_tax_agent(),
-            build_budget_agent(),
-            build_goal_agent(),
-            build_investment_agent(),
-            build_debt_agent()
-        ],
-        tools=[
-            # Handoff tools
-            handoff_to_tax_specialist,
-            handoff_to_budget_specialist,
-            handoff_to_goal_specialist,
-            handoff_to_investment_specialist,
-            handoff_to_debt_specialist,
-            coordinate_multi_specialist_analysis,
-            route_user_query,
-            # Core data management tools
-            ingest_csv,
-            ingest_excel,
-            list_excel_sheets,
-            ingest_pdfs,
-            list_recent_transactions,
-            search_transactions,
-            list_memories,
-            summarize_file,
-            summarize_overview,
-            add_transaction,
-            export_transactions,
-            export_recurring_payments,
-        ]
+        model="gpt-5",
+        model_settings=model_settings,
+        handoffs=handoff_agents,
+        tools=tools_list,
     )
 
 
