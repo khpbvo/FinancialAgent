@@ -805,7 +805,9 @@ def export_recurring_payments(
     format: str = "pdf",
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    min_confidence: float = 0.6
+    min_confidence: float = 0.6,
+    exclude_credit_repayment: bool = True,
+    bills_only: bool = False
 ) -> str:
     """Export only recurring payments/subscriptions to a clean report.
     
@@ -840,6 +842,26 @@ Example: "Please detect recurring transactions first, then export them to PDF"
         (min_confidence,)
     )
     recurring_patterns = cur.fetchall()
+
+    # Optional filter: exclude credit card repayment pattern and POS-like patterns for bills_only
+    def is_credit_repayment(p) -> bool:
+        d = (p['description_pattern'] or '').lower()
+        return ('creditcard' in d or 'credit card' in d) and ('incasso' in d or 'afloss' in d or 'accountnr' in d)
+
+    if exclude_credit_repayment:
+        recurring_patterns = [p for p in recurring_patterns if not is_credit_repayment(p)]
+
+    if bills_only:
+        def is_pos_like(p) -> bool:
+            d = (p['description_pattern'] or '').lower()
+            return any(x in d for x in [
+                'betaalautomaat', 'geldmaat', 'albert heijn', ' ah ', 'jumbo', 'primera', 'coffeeshop', 'restaurant', 'mc donald', 'kfc'
+            ])
+        # Keep likely monthly bills; drop obvious POS and fees/cash withdrawals
+        recurring_patterns = [
+            p for p in recurring_patterns
+            if not is_pos_like(p) and (p['category'] or '').lower() not in ('fees', 'cash_withdrawal')
+        ]
     
     if not recurring_patterns:
         return f"No recurring transactions found with confidence >= {min_confidence*100:.0f}%"
@@ -867,6 +889,24 @@ Example: "Please detect recurring transactions first, then export them to PDF"
     # Filter to only transactions that match recurring patterns
     recurring_transactions = []
     
+    # Whitelist keywords for variable bills
+    bill_keywords = [
+        # telecom
+        'vodafone', 'libertel', 'odido', 'kpn', 't-mobile', 'tmobile', 'ziggo',
+        # energy/utilities
+        'essent', 'energie', 'vandebron', 'nuon', 'eneco', 'waterbedrijf', 'stroom', 'gas',
+        # insurance
+        'vgz', 'verzekering', 'verzekeraar', 'nn schadeverzekering', 'anwb verzekeren', 'cz', 'fbto',
+        # housing/rent
+        'brabantwonen', 'huur', 'hypotheek', 'woning', 'woonverzekering',
+        # government/taxes
+        'gemeente', 'belasting', 'heffing', 'waterschap'
+    ]
+
+    def is_variable_bill(desc: str) -> bool:
+        dl = desc.lower()
+        return any(k in dl for k in bill_keywords)
+
     for tx in all_transactions:
         for pattern in recurring_patterns:
             # Simple pattern matching - check if transaction description contains key parts
@@ -876,9 +916,21 @@ Example: "Please detect recurring transactions first, then export them to PDF"
             # Check if most pattern words are in transaction description
             matches = sum(1 for word in pattern_words if word in tx_desc)
             if matches >= len(pattern_words) * 0.7:  # 70% word match threshold
-                # Check if amount is similar (within 20%)
-                amount_diff = abs(abs(tx['amount']) - pattern['amount']) / pattern['amount']
-                if amount_diff <= 0.2:  # Within 20% of expected amount
+                # Amount tolerance: allow higher variance for variable bills
+                tol = 0.2
+                if bills_only and (is_variable_bill(tx_desc) or is_variable_bill(pattern['description_pattern'])):
+                    tol = 0.4
+                # Check if amount is similar
+                amount_diff = abs(abs(tx['amount']) - pattern['amount']) / max(pattern['amount'], 1e-9)
+                if amount_diff <= tol:
+                    # bills_only extra filter against POS-like lines
+                    if bills_only:
+                        tcat = (tx['category'] or '').lower() if 'category' in tx.keys() else ''
+                        if tcat in ('fees', 'cash_withdrawal'):
+                            continue
+                        tdl = tx_desc
+                        if any(x in tdl for x in ['betaalautomaat', 'geldmaat', 'albert heijn', ' ah ', 'jumbo', 'coffeeshop']):
+                            continue
                     tx_dict = dict(tx)
                     tx_dict['recurring_pattern'] = pattern['description_pattern']
                     tx_dict['confidence'] = pattern['confidence']

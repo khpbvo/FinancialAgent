@@ -28,7 +28,7 @@ class DB:
     @property
     def conn(self) -> sqlite3.Connection:
         if self._conn is None:
-            self._conn = sqlite3.connect(self.path)
+            self._conn = sqlite3.connect(self.path, timeout=10.0)
             self._conn.row_factory = sqlite3.Row
         return self._conn
 

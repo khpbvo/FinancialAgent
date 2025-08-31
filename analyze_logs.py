@@ -41,7 +41,7 @@ def main():
         
         # Performance summary
         tool_perf = debug_analyzer.get_tool_performance_analysis()
-        if "error" not in tool_perf:
+        if tool_perf and "error" not in tool_perf and "message" not in tool_perf:
             print("Tool Performance Summary:")
             print(f"  Total tool calls: {tool_perf['summary']['total_tool_calls']}")
             print(f"  Success rate: {tool_perf['summary']['overall_success_rate']:.2%}")
@@ -61,6 +61,24 @@ def main():
                     if 'avg_execution_time_ms' in stats:
                         print(f"      Avg time: {stats['avg_execution_time_ms']:.1f}ms")
                 print()
+
+        # Deep profiling: top slow calls and time aggregation by tool
+        slow_calls = debug_analyzer.get_top_slow_tool_calls(top_n=10)
+        if slow_calls:
+            print("Top 10 slowest tool calls:")
+            for c in slow_calls:
+                print(f"  {c['timestamp']} | {c['tool_name']} | {c['execution_time_ms']:.1f}ms")
+            print()
+
+        agg = debug_analyzer.get_tool_time_aggregation()
+        if agg:
+            print("Time spent by tool (total/avg/max):")
+            for row in agg[:10]:
+                print(f"  {row['tool_name']}: total {row['total_ms']:.0f}ms, avg {row['avg_ms']:.1f}ms over {row['calls']} calls (max {row['max_ms']:.1f}ms)")
+            print()
+        else:
+            print("No tool call timing data found in logs.")
+            print()
     
     # Analyze OpenAI API logs
     print("\n🤖 OPENAI API LOGS")

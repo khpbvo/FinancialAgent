@@ -164,10 +164,24 @@ def process_csv_file(deps: RunDeps, csv_path: Path, csv_map: CSVMap | None = Non
                 currency = row.get("currency")
                 category = row.get("category")
 
+            # Duplicate guard: skip if identical record already exists
             cur.execute(
-                INSERT_TRANSACTION,
-                (date, desc, amount, currency, category, str(csv_path.name)),
+                """
+                SELECT 1 FROM transactions
+                WHERE date = ?
+                  AND description = ?
+                  AND ABS(amount - ?) < 1e-9
+                  AND IFNULL(currency,'') = IFNULL(?, '')
+                  AND IFNULL(source_file,'') = IFNULL(?, '')
+                LIMIT 1
+                """,
+                (date, desc, amount, currency or '', str(csv_path.name))
             )
+            exists = cur.fetchone()
+            if exists:
+                continue
+
+            cur.execute(INSERT_TRANSACTION, (date, desc, amount, currency, category, str(csv_path.name)))
             inserted += 1
     deps.db.conn.commit()
     return inserted

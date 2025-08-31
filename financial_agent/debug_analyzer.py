@@ -51,31 +51,76 @@ class LogAnalyzer:
         
         try:
             with open(self.log_file, 'r', encoding='utf-8') as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    
+                buffer: List[str] = []
+                for raw in f:
+                    line = raw.rstrip('\n')
+                    if not buffer:
+                        # Start a JSON buffer only if this looks like JSON
+                        if line.lstrip().startswith('{'):
+                            buffer = [line]
+                        else:
+                            continue
+                    else:
+                        buffer.append(line)
+
+                    # Try to parse the current buffer as a JSON object
+                    joined = "\n".join(buffer)
                     try:
-                        event_data = json.loads(line)
-                        event = LogEvent(**event_data)
-                        
-                        # Apply filters
-                        if session_id and event.session_id != session_id:
-                            continue
-                        
-                        event_time = datetime.fromisoformat(event.timestamp.replace('Z', '+00:00'))
-                        if start_time and event_time < start_time:
-                            continue
-                        if end_time and event_time > end_time:
-                            continue
-                        
-                        self.events.append(event)
-                        
-                    except (json.JSONDecodeError, TypeError) as e:
-                        print(f"Error parsing log line: {e}")
+                        event_data = json.loads(joined)
+                    except json.JSONDecodeError:
+                        # Keep buffering until valid JSON
                         continue
-                        
+
+                    # Coerce schema variants to LogEvent
+                    if 'event_type' not in event_data and 'type' in event_data:
+                        event_data['event_type'] = event_data.pop('type')
+                    event_data.setdefault('level', 'INFO')
+                    event_data.setdefault('session_id', event_data.get('session', 'unknown_session'))
+                    event_data.setdefault('agent_name', None)
+                    event_data.setdefault('tool_name', None)
+                    event_data.setdefault('message', '')
+                    event_data.setdefault('data', {})
+                    event_data.setdefault('execution_time_ms', None)
+                    event_data.setdefault('error', None)
+                    event_data.setdefault('stack_trace', None)
+
+                    # Build event
+                    try:
+                        event = LogEvent(**event_data)
+                    except TypeError:
+                        buffer = []
+                        continue
+
+                    # Apply filters
+                    if session_id and event.session_id != session_id:
+                        buffer = []
+                        continue
+
+                    try:
+                        event_time = datetime.fromisoformat(event.timestamp.replace('Z', '+00:00'))
+                    except Exception:
+                        event_time = None
+                    if start_time and event_time and event_time < start_time:
+                        buffer = []
+                        continue
+                    if end_time and event_time and event_time > end_time:
+                        buffer = []
+                        continue
+
+                    self.events.append(event)
+                    buffer = []  # Reset after successful parse
+
+                # If leftover buffer, attempt one last parse
+                if buffer:
+                    try:
+                        event_data = json.loads("\n".join(buffer))
+                        if 'event_type' not in event_data and 'type' in event_data:
+                            event_data['event_type'] = event_data.pop('type')
+                        event = LogEvent(**event_data)
+                        self.events.append(event)
+                    except Exception:
+                        pass
+
         except Exception as e:
             print(f"Error loading log file: {e}")
             return 0
@@ -87,6 +132,45 @@ class LogAnalyzer:
             
         print(f"Loaded {len(self.events)} log events")
         return len(self.events)
+
+    def get_top_slow_tool_calls(self, session_id: Optional[str] = None, top_n: int = 10) -> List[Dict[str, Any]]:
+        """Return the top-N slowest tool call completions by execution_time_ms."""
+        if self.df is None or self.df.empty:
+            return []
+        df = self.df
+        if session_id:
+            df = df[df['session_id'] == session_id]
+        tool_done = df[(df['event_type'] == 'tool_call_complete') & (df['execution_time_ms'].notna())]
+        if tool_done.empty:
+            return []
+        top = tool_done.sort_values('execution_time_ms', ascending=False).head(top_n)
+        results = []
+        for _, row in top.iterrows():
+            results.append({
+                'timestamp': row['timestamp'].isoformat(),
+                'tool_name': row['tool_name'],
+                'agent_name': row.get('agent_name'),
+                'execution_time_ms': row['execution_time_ms'],
+                'message': row['message'],
+            })
+        return results
+
+    def get_tool_time_aggregation(self, session_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Aggregate total and average execution time per tool."""
+        if self.df is None or self.df.empty:
+            return []
+        df = self.df
+        if session_id:
+            df = df[df['session_id'] == session_id]
+        done = df[(df['event_type'] == 'tool_call_complete') & (df['execution_time_ms'].notna())]
+        if done.empty:
+            return []
+        grouped = done.groupby('tool_name')['execution_time_ms']
+        agg = grouped.agg(['count', 'mean', 'sum', 'max']).reset_index().rename(columns={
+            'count': 'calls', 'mean': 'avg_ms', 'sum': 'total_ms', 'max': 'max_ms'
+        })
+        agg = agg.sort_values('total_ms', ascending=False)
+        return agg.to_dict(orient='records')
     
     def get_session_summary(self, session_id: Optional[str] = None) -> Dict[str, Any]:
         """Get summary statistics for a session or all sessions.

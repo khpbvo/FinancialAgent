@@ -9,15 +9,22 @@ from .specialists.budget_agent import build_budget_agent
 from .specialists.goal_agent import build_goal_agent
 from .specialists.investment_agent import build_investment_agent
 from .specialists.debt_agent import build_debt_agent
-from .tools.ingest import ingest_csv
-from .tools.excel_ingest import ingest_excel, list_excel_sheets
-from .tools.query import list_recent_transactions, search_transactions
-from .tools.pdf_ingest import ingest_pdfs
-from .tools.memory import list_memories
-from .tools.summarize import summarize_file, summarize_overview
-from .tools.records import add_transaction
-from .tools.export import export_transactions, export_recurring_payments
-from .tools.recurring import export_clean_monthly_recurring
+from .logged_tools import (
+    logged_ingest_csv as ingest_csv,
+    logged_ingest_excel as ingest_excel,
+    logged_list_excel_sheets as list_excel_sheets,
+    logged_list_recent_transactions as list_recent_transactions,
+    logged_search_transactions as search_transactions,
+    logged_ingest_pdfs as ingest_pdfs,
+    logged_list_memories as list_memories,
+    logged_summarize_file as summarize_file,
+    logged_summarize_overview as summarize_overview,
+    logged_add_transaction as add_transaction,
+    logged_export_transactions as export_transactions,
+    logged_export_recurring_payments as export_recurring_payments,
+    logged_export_clean_monthly_recurring as export_clean_monthly_recurring,
+    logged_monthly_cost_summary as monthly_cost_summary,
+)
 # from .debug_analyzer import create_debug_tool  # TODO: Fix type issues
 
 
@@ -90,6 +97,7 @@ Routing Guidelines:
 • Investment, portfolio, wealth building → Investment Specialist
 • Debt, loans, credit questions → Debt Specialist
 • Data ingestion (CSV/PDF/Excel) → Handle directly
+• Monthly spending/cost questions → Use monthly_cost_summary first (fast, deterministic)
 • Multi-domain questions → Use multiple specialists and synthesize
 
 Key principles:
@@ -318,12 +326,19 @@ def analyze_query_intent(user_query: str) -> Dict[str, any]:
         'refinance', 'snowball', 'avalanche'
     ]
     
+    # Monthly cost intent keywords
+    monthly_cost_keywords = [
+        'monthly cost', 'monthly costs', 'monthly spending', 'spending last month',
+        'last month spend', 'expenses last month', 'monthly expenses', 'costs last month'
+    ]
+
     # Score each category
     tax_score = sum(1 for keyword in tax_keywords if keyword in query_lower)
     budget_score = sum(1 for keyword in budget_keywords if keyword in query_lower)
     goal_score = sum(1 for keyword in goal_keywords if keyword in query_lower)
     investment_score = sum(1 for keyword in investment_keywords if keyword in query_lower)
     debt_score = sum(1 for keyword in debt_keywords if keyword in query_lower)
+    monthly_cost_intent = any(k in query_lower for k in monthly_cost_keywords)
     
     # Determine primary intent
     scores = {
@@ -359,6 +374,7 @@ def analyze_query_intent(user_query: str) -> Dict[str, any]:
         'specialists_needed': specialists_needed,
         'is_multi_specialist': is_multi_specialist,
         'is_data_operation': is_data_operation,
+        'is_monthly_cost': monthly_cost_intent,
         'confidence_scores': scores
     }
 
@@ -401,6 +417,7 @@ def build_orchestrator_agent() -> Agent[RunDeps]:
         list_memories,
         summarize_file,
         summarize_overview,
+        monthly_cost_summary,
         add_transaction,
         export_transactions,
         export_recurring_payments,
@@ -460,6 +477,8 @@ def route_user_query(
         results.append("\n💡 **Recommendation:** Route to Investment Specialist")
     elif intent['primary_intent'] == 'debt':
         results.append("\n💡 **Recommendation:** Route to Debt Specialist")
+    elif intent['is_monthly_cost']:
+        results.append("\n💡 **Recommendation:** Call monthly_cost_summary (fast, deterministic)")
     elif intent['is_data_operation']:
         results.append("\n💡 **Recommendation:** Handle directly (data operation)")
     else:

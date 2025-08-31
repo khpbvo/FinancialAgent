@@ -43,6 +43,7 @@ from .logged_tools import (
     logged_generate_tax_report as generate_tax_report,
     logged_export_budget_report as export_budget_report,
     logged_export_recurring_payments as export_recurring_payments,
+    logged_monthly_cost_summary as monthly_cost_summary,
 )
 from .orchestrator import build_orchestrator_agent
 
@@ -66,15 +67,16 @@ def build_deps() -> Generator[RunDeps, None, None]:
     set_openai_logger(openai_logger)
     
     # Initialize enhanced OpenAI logger for deeper HTTP-level interception
-    enhanced_logger = EnhancedOpenAILogger(session_id=logger.session_id)
-    set_enhanced_openai_logger(enhanced_logger)
+    # TEMPORARILY DISABLED: Can cause hanging issues
+    # enhanced_logger = EnhancedOpenAILogger(session_id=logger.session_id)
+    # set_enhanced_openai_logger(enhanced_logger)
     
     if cfg.openai_api_key:
         try:
             set_default_openai_key(cfg.openai_api_key)
             log_info("OpenAI API key configured successfully")
             openai_logger.log_system_event("OpenAI API key configured", {"model": cfg.model})
-            enhanced_logger.log_system_event("Enhanced OpenAI logger initialized", {"model": cfg.model})
+            # enhanced_logger.log_system_event("Enhanced OpenAI logger initialized", {"model": cfg.model})
         except Exception as e:
             log_error("Failed to set OpenAI API key", error=e)
             pass
@@ -100,11 +102,11 @@ def build_deps() -> Generator[RunDeps, None, None]:
             "memories": mem_count,
             "model": cfg.model
         })
-        enhanced_logger.log_system_event("Financial Agent context ready", {
-            "transactions": tx_count,
-            "memories": mem_count,
-            "model": cfg.model
-        })
+        # enhanced_logger.log_system_event("Financial Agent context ready", {
+        #     "transactions": tx_count,
+        #     "memories": mem_count,
+        #     "model": cfg.model
+        # })
         
         yield deps
 
@@ -227,6 +229,8 @@ def build_legacy_agent() -> Agent[RunDeps]:
         summarize_file,
         summarize_overview,
         add_transaction,
+        # Fast cost summary
+        monthly_cost_summary,
     ]
     
     logger.log_agent_init("FinancialAgent", {

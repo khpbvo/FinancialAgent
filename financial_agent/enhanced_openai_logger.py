@@ -182,6 +182,7 @@ class EnhancedOpenAILogger:
             'openai.com',
             '/v1/chat/completions',
             '/v1/completions',
+            '/v1/responses',
             '/v1/traces'
         ]
         return any(indicator in url for indicator in openai_indicators)

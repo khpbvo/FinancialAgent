@@ -8,92 +8,99 @@ from ..context import RunDeps
 
 
 def calculate_frequency(dates: List[str]) -> tuple[str, float]:
-    """Calculate the frequency of transactions based on dates.
-    Uses a month-based approach that's more accurate for recurring transactions.
-    
+    """Infer recurring frequency from transaction dates.
+
+    Strategy (monthly-first):
+    - Collapse multiple occurrences per calendar month to a single representative date.
+    - Detect monthly/quarterly/yearly using month gaps and day-of-month consistency.
+    - Only if month-based detection fails, fall back to bi-weekly/weekly/daily checks.
+
     Returns: (frequency_type, confidence_score)
     """
     if len(dates) < 2:
         return "unknown", 0.0
-    
-    # Convert to datetime objects and sort
-    dt_dates = sorted([datetime.strptime(d, '%Y-%m-%d') for d in dates])
-    
-    # Group dates by month to detect monthly patterns
-    monthly_groups = defaultdict(list)
+
+    # Parse and sort
+    dt_dates = sorted(datetime.strptime(d, "%Y-%m-%d") for d in dates)
+
+    # Group by unique months and compute a representative day (median day-of-month)
+    by_month: dict[str, list[datetime]] = defaultdict(list)
     for dt in dt_dates:
-        month_key = f"{dt.year}-{dt.month:02d}"
-        monthly_groups[month_key].append(dt)
-    
-    # Get unique months with transactions
-    months = sorted(monthly_groups.keys())
-    
-    if len(months) < 2:
-        return "unknown", 0.0
-    
-    # Calculate intervals between months with transactions
-    month_dates = [datetime.strptime(month + "-01", "%Y-%m-%d") for month in months]
-    month_intervals = [(month_dates[i+1] - month_dates[i]).days for i in range(len(month_dates)-1)]
-    
-    if not month_intervals:
-        return "unknown", 0.0
-    
-    # Calculate average monthly interval
-    avg_month_interval = sum(month_intervals) / len(month_intervals)
-    
-    # For daily/weekly analysis, use actual transaction dates
-    if len(dt_dates) >= 7:  # Need enough data points for daily/weekly analysis
-        intervals = [(dt_dates[i+1] - dt_dates[i]).days for i in range(len(dt_dates)-1)]
-        avg_day_interval = sum(intervals) / len(intervals)
-        
-        # Check for daily pattern (transactions every 1-3 days)
-        if 1 <= avg_day_interval <= 3 and len(dt_dates) >= 10:
-            variance = sum((i - avg_day_interval) ** 2 for i in intervals) / len(intervals)
-            confidence = max(0.1, 1 - (variance / (avg_day_interval ** 2)))
-            return "daily", min(confidence, 0.9)
-        
-        # Check for weekly pattern (5-10 day average)
-        if 5 <= avg_day_interval <= 10:
-            variance = sum((i - avg_day_interval) ** 2 for i in intervals) / len(intervals)
-            confidence = max(0.1, 1 - (variance / 49))  # normalized to weekly variance
-            return "weekly", min(confidence, 0.9)
-    
-    # Monthly pattern detection (most common for subscriptions) - more flexible
-    if 20 <= avg_month_interval <= 40:  # Wider range for ~1 month intervals
-        # Calculate confidence based on consistency
-        target = 30  # days in a month
-        variance = sum((i - target) ** 2 for i in month_intervals) / len(month_intervals)
-        confidence = max(0.4, 1 - (variance / (target ** 2)))  # Higher base confidence
-        return "monthly", min(confidence, 0.95)
-    
-    # Bi-weekly pattern (every 2 weeks, so ~14 days)
+        by_month[f"{dt.year:04d}-{dt.month:02d}"] .append(dt)
+
+    unique_months = sorted(by_month.keys())
+
+    # Build representative monthly timeline
+    monthly_points: list[datetime] = []
+    monthly_days: list[int] = []
+    for m in unique_months:
+        bucket = by_month[m]
+        days = sorted(x.day for x in bucket)
+        # Representative = median day-of-month to reduce noise
+        median_day = days[len(days)//2]
+        y, mo = map(int, m.split("-"))
+        monthly_points.append(datetime(y, mo, min(median_day, 28)))  # clamp to 28 for safety
+        monthly_days.append(median_day)
+
+    # Early exit if we don't have enough distinct months
+    if len(monthly_points) >= 3:
+        # Compute month gaps (in months) between consecutive points
+        def months_between(a: datetime, b: datetime) -> int:
+            return (b.year - a.year) * 12 + (b.month - a.month)
+
+        gaps = [months_between(monthly_points[i], monthly_points[i+1]) for i in range(len(monthly_points)-1)]
+
+        # Helper to build confidence: share of target gaps + day-of-month stability
+        def monthly_conf(target_gap: int) -> float:
+            if not gaps:
+                return 0.0
+            target_share = sum(1 for g in gaps if g == target_gap) / len(gaps)
+            # Day-of-month stability: penalize if median absolute deviation is large
+            if len(monthly_days) > 1:
+                med = sorted(monthly_days)[len(monthly_days)//2]
+                mad = sum(abs(d - med) for d in monthly_days) / len(monthly_days)
+                day_stability = max(0.0, 1.0 - (mad / 10.0))  # ~10-day tolerance
+            else:
+                day_stability = 0.8
+            base = 0.6 if target_gap == 1 else 0.5  # monthly more likely than others
+            return min(0.95, max(base, base * 0.5 + target_share * 0.4 + day_stability * 0.3))
+
+        # Prefer exact monthly (gap=1), then quarterly (3), then yearly (12)
+        if all(g in (1, 2) for g in gaps) and gaps.count(1) >= max(2, int(0.6 * len(gaps))):
+            return "monthly", monthly_conf(1)
+        if all(g in (3, 6) for g in gaps) and gaps.count(3) >= max(1, int(0.5 * len(gaps))):
+            return "quarterly", monthly_conf(3)
+        if all(g >= 11 for g in gaps):
+            return "yearly", monthly_conf(12)
+
+    # Fall back to daily/weekly/bi-weekly checks on actual dates
     if len(dt_dates) >= 4:
         intervals = [(dt_dates[i+1] - dt_dates[i]).days for i in range(len(dt_dates)-1)]
-        avg_interval = sum(intervals) / len(intervals)
-        if 12 <= avg_interval <= 16:
-            variance = sum((i - 14) ** 2 for i in intervals) / len(intervals)
-            confidence = max(0.2, 1 - (variance / 196))  # normalized to bi-weekly variance
-            return "bi-weekly", min(confidence, 0.9)
-    
-    # Quarterly pattern (every 3 months)
-    if 80 <= avg_month_interval <= 100:  # ~3 month intervals
-        target = 90  # days in a quarter
-        variance = sum((i - target) ** 2 for i in month_intervals) / len(month_intervals)
-        confidence = max(0.2, 1 - (variance / (target ** 2)))
-        return "quarterly", min(confidence, 0.9)
-    
-    # Yearly pattern (every 12 months)
-    if 330 <= avg_month_interval <= 400:  # ~1 year intervals
-        target = 365  # days in a year
-        variance = sum((i - target) ** 2 for i in month_intervals) / len(month_intervals)
-        confidence = max(0.2, 1 - (variance / (target ** 2)))
-        return "yearly", min(confidence, 0.9)
-    
-    # If we have multiple months but irregular timing, it's still recurring
-    if len(months) >= 3:
-        # Look for seasonal or irregular patterns
+        if intervals:
+            avg_day_interval = sum(intervals) / len(intervals)
+
+            # Bi-weekly pattern (~14 days)
+            if 12 <= avg_day_interval <= 16:
+                variance = sum((i - 14) ** 2 for i in intervals) / len(intervals)
+                confidence = max(0.2, 1 - (variance / 196))
+                return "bi-weekly", min(confidence, 0.9)
+
+            # Weekly (~7 days)
+            if 5 <= avg_day_interval <= 10:
+                variance = sum((i - avg_day_interval) ** 2 for i in intervals) / len(intervals)
+                confidence = max(0.1, 1 - (variance / 49))
+                return "weekly", min(confidence, 0.9)
+
+            # Daily (1–3 days)
+            if len(dt_dates) >= 10 and 1 <= avg_day_interval <= 3:
+                variance = sum((i - avg_day_interval) ** 2 for i in intervals) / len(intervals)
+                confidence = max(0.1, 1 - (variance / (avg_day_interval ** 2 or 1)))
+                return "daily", min(confidence, 0.9)
+
+    # Consider irregular recurring if seen across >= 3 months
+    if len(set(d[:7] for d in dates)) >= 3:
         return "irregular", 0.4
-    
+
     return "unknown", 0.0
 
 

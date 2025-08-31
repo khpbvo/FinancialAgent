@@ -219,7 +219,22 @@ def process_excel_file(deps: RunDeps, excel_path: Path, sheet_name: Optional[str
         if not date or not description:
             continue
         
-        # Insert transaction
+        # Duplicate guard: skip identical records
+        cur.execute(
+            """
+            SELECT 1 FROM transactions
+            WHERE date = ?
+              AND description = ?
+              AND ABS(amount - ?) < 1e-9
+              AND IFNULL(currency,'') = IFNULL(?, '')
+              AND IFNULL(source_file,'') = IFNULL(?, '')
+            LIMIT 1
+            """,
+            (date, description, amount, currency or '', str(excel_path.name))
+        )
+        if cur.fetchone():
+            continue
+
         cur.execute(INSERT_TRANSACTION, (date, description, amount, currency, category, str(excel_path.name)))
         inserted += 1
     

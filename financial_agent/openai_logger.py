@@ -405,6 +405,9 @@ def _patch_openai_client():
     # Apply patches
     try:
         from openai.resources.chat import completions
+        # Note: Avoid patching Responses API streaming methods to prevent
+        # interference with SDK streaming internals.
+        responses_mod = None
         
         # Sync client
         if hasattr(completions.Completions, 'create') and not hasattr(completions.Completions, '_original_create'):
@@ -417,6 +420,9 @@ def _patch_openai_client():
             original_acreate = completions.AsyncCompletions.create
             completions.AsyncCompletions._original_acreate = original_acreate
             completions.AsyncCompletions.create = logged_acreate
+
+        # Intentionally not patching responses.create/stream to avoid
+        # pickling issues in streaming pipelines.
             
     except ImportError:
         pass  # OpenAI not available
