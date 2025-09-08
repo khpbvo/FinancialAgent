@@ -447,7 +447,11 @@ Available commands:
                                     else:
                                         print("\n📝 Response: ", end="", flush=True)
                                     show_progress = False
-                                print(getattr(event.data, "delta", ""), end="", flush=True)
+                                delta_text = getattr(event.data, "delta", "")
+                                print(delta_text, end="", flush=True)
+                                # Accumulate streamed text so end-of-stream fallback doesn't trigger
+                                if isinstance(delta_text, str):
+                                    current_message += delta_text
                                 continue
                             # Handle text done events (some models emit only 'done' without deltas)
                             if isinstance(data, ResponseTextDoneEvent):
@@ -465,6 +469,8 @@ Available commands:
                                 text = getattr(event.data, "text", "")
                                 if text:
                                     print(text, end="", flush=True)
+                                    if isinstance(text, str):
+                                        current_message += text
                                 continue
                             # Some SDK paths emit only output-item-added with a text chunk
                             if isinstance(data, ResponseOutputItemAddedEvent):
@@ -481,6 +487,8 @@ Available commands:
                                         print("\n📝 Response: ", end="", flush=True)
                                         show_progress = False
                                     print(text, end="", flush=True)
+                                    if isinstance(text, str):
+                                        current_message += text
                                     continue
 
                             # Fallback: Try to extract text from raw event data
@@ -501,6 +509,8 @@ Available commands:
                                             print("\n📝 Response: ", end="", flush=True)
                                             show_progress = False
                                         print(text_content, end="", flush=True)
+                                        if isinstance(text_content, str):
+                                            current_message += text_content
                                         continue
                         # Ignore other raw events (created, in_progress, item_added, etc.) per Docs/streaming.md
                         # We'll rely on deltas and run item events for user-visible output.
