@@ -1,11 +1,10 @@
-import pytest
 from unittest.mock import MagicMock, patch
 import openai
 
 
 def test_gps5_chat_completion():
     """Ensure we call the OpenAI client with the gpt-5 model."""
-    with patch('openai.OpenAI') as MockClient:
+    with patch("openai.OpenAI") as MockClient:
         mock_client = MockClient.return_value
         mock_response = MagicMock()
         mock_message = MagicMock()

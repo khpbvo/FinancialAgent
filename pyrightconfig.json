@@ -1,0 +1,10 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/pyright/main/packages/pyright/schema/pyrightconfig.schema.json",
+  "include": ["financial_agent", "tests"],
+  "typeCheckingMode": "basic",
+  "reportAttributeAccessIssue": "none",
+  "reportMissingImports": "warning",
+  "useLibraryCodeForTypes": true,
+  "venvPath": ".",
+  "venv": "venv"
+}
