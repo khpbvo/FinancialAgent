@@ -152,3 +152,5 @@ documents/*
 
 # Backup files
 backup_*.sql
+word_count.patch
+count_words.py
