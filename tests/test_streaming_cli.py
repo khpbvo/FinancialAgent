@@ -35,7 +35,9 @@ async def test_streaming_mode_streams_text(monkeypatch, capsys):
         def __init__(self, delta: str):
             self.delta = delta
 
-    monkeypatch.setattr(cli_mod, "ResponseTextDeltaEvent", DummyTextDelta, raising=False)
+    monkeypatch.setattr(
+        cli_mod, "ResponseTextDeltaEvent", DummyTextDelta, raising=False
+    )
 
     ev1 = FakeEvent("raw_response_event", data=DummyTextDelta("Hello "))
     ev2 = FakeEvent("raw_response_event", data=DummyTextDelta("world"))

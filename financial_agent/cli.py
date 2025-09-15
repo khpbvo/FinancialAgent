@@ -424,7 +424,9 @@ Available commands:
                                 if not reasoning_started:
                                     print("\n🧠 Reasoning:\n" + "─" * 50)
                                     reasoning_started = True
-                                print(getattr(event.data, "delta", ""), end="", flush=True)
+                                print(
+                                    getattr(event.data, "delta", ""), end="", flush=True
+                                )
                                 continue
                             if isinstance(data, ResponseReasoningSummaryTextDeltaEvent):
                                 any_output_streamed = True
@@ -433,7 +435,9 @@ Available commands:
                                         "\n📊 Reasoning summary: ", end="", flush=True
                                     )
                                     reasoning_started = True
-                                print(getattr(event.data, "delta", ""), end="", flush=True)
+                                print(
+                                    getattr(event.data, "delta", ""), end="", flush=True
+                                )
                                 continue
                             # Handle text deltas from the LLM
                             if isinstance(data, ResponseTextDeltaEvent):
@@ -794,6 +798,7 @@ async def streaming_mode(
     show_progress = True
     reasoning_started = False
     reasoning_text = ""
+    response_captured = False
 
     async for event in result.stream_events():
         if event.type == "raw_response_event":
@@ -835,6 +840,7 @@ async def streaming_mode(
                 delta = getattr(event.data, "delta", "")
                 print(delta, end="", flush=True)
                 current_message += delta
+                response_captured = True
             # Handle text done events (if deltas aren't emitted)
             elif isinstance(event.data, ResponseTextDoneEvent):
                 if reasoning_started and show_progress:
@@ -847,6 +853,7 @@ async def streaming_mode(
                 if text:
                     print(text, end="", flush=True)
                     current_message += text
+                    response_captured = True
 
         elif event.type == "run_item_stream_event":
             if event.item.type == "tool_call_item":
@@ -905,14 +912,22 @@ async def streaming_mode(
                         message_text = ItemHelpers.text_message_output(event.item)
                         if message_text:
                             print(f"📝 Response: {message_text}")
+                            current_message += message_text
+                            response_captured = True
                     except Exception:
                         # Fallback: try to extract text from item
                         if hasattr(event.item, "text"):
                             print(f"📝 Response: {event.item.text}")
+                            current_message += event.item.text
+                            response_captured = True
                         elif hasattr(event.item, "content"):
                             print(f"📝 Response: {event.item.content}")
+                            current_message += event.item.content
+                            response_captured = True
                         elif hasattr(event.item, "output"):
                             print(f"📝 Response: {event.item.output}")
+                            current_message += event.item.output
+                            response_captured = True
 
         elif event.type == "agent_updated_stream_event":
             print(f"\n🔄 Agent updated: {event.new_agent.name}")
@@ -921,12 +936,28 @@ async def streaming_mode(
             )
 
     # If no message was streamed, try to get final output
-    if not current_message:
+    if not response_captured:
+        fallback_handled = False
+
         try:
-            if hasattr(result, "final_output") and result.final_output:
-                print(f"\n📝 Response: {result.final_output}")
+            final_output = getattr(result, "final_output", None)
+            if final_output:
+                print(f"\n📝 Response: {final_output}")
+                fallback_handled = True
         except Exception:
             pass
+
+        if not fallback_handled:
+            print("\nℹ️ Using fallback sync run...")
+            try:
+                final_res = await Runner.run(
+                    agent, input=user_input, context=deps, session=session
+                )
+                if hasattr(final_res, "final_output") and final_res.final_output:
+                    print(f"📝 Response (fallback): {final_res.final_output}")
+                    fallback_handled = True
+            except Exception as sync_error:
+                print(f"❌ Sync fallback failed: {sync_error}")
 
     print("\n" + "=" * 50)
     print("✅ Processing complete.")

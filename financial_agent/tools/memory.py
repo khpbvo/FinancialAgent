@@ -14,5 +14,8 @@ def list_memories(ctx: RunContextWrapper[RunDeps], limit: int = 10) -> str:
     rows = cur.fetchall()
     if not rows:
         return "No memories saved yet."
-    lines = [f"[{r['created_at']}] {r['kind']}: {r['content'][:140]}... (tags: {r['tags']})" for r in rows]
+    lines = [
+        f"[{r['created_at']}] {r['kind']}: {r['content'][:140]}... (tags: {r['tags']})"
+        for r in rows
+    ]
     return "\n".join(lines)

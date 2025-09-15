@@ -1,4 +1,5 @@
 """Examples of using the advanced SDK features."""
+
 import asyncio
 from pathlib import Path
 from datetime import datetime
@@ -11,7 +12,7 @@ from financial_agent.document_agents import (
     build_document_orchestrator,
     BatchDocumentProcessor,
     analyze_csv_with_agent,
-    analyze_pdf_with_agent
+    analyze_pdf_with_agent,
 )
 from financial_agent.validated_tools import (
     TransactionSearchParams,
@@ -22,12 +23,11 @@ from financial_agent.validated_tools import (
     search_transactions_validated,
     add_validated_transaction,
     create_budget_validated,
-    analyze_spending_validated
+    analyze_spending_validated,
 )
 from financial_agent.session_protocol import (
     FinancialSessionManager,
     StorageBackend,
-    SessionFactory
 )
 
 
@@ -36,22 +36,22 @@ async def example_advanced_agent():
     print("=" * 60)
     print("Example: Advanced Agent with SDK Optimizations")
     print("=" * 60)
-    
+
     # Build agent with all features enabled
     agent = build_advanced_agent(
         enable_web_search=True,
         enable_guardrails=True,
         enable_hooks=True,
-        tool_choice_mode="critical"  # Forces data ingestion when DB is empty
+        tool_choice_mode="critical",  # Forces data ingestion when DB is empty
     )
-    
+
     with build_deps() as deps:
         # Run with PII protection (guardrails will catch this)
         try:
             result = await Runner.run(
                 agent,
                 input="My SSN is 123-45-6789, can you analyze my spending?",
-                context=deps
+                context=deps,
             )
             print(f"Result: {result.final_output}")
         except Exception as e:
@@ -61,7 +61,7 @@ async def example_advanced_agent():
         result = await Runner.run(
             agent,
             input="What's the current EUR to USD exchange rate and how does it affect my budget?",
-            context=deps
+            context=deps,
         )
         print(f"\nWeb Search Result: {result.final_output}")
 
@@ -71,7 +71,7 @@ async def example_document_agents():
     print("\n" + "=" * 60)
     print("Example: Document Analysis Agents")
     print("=" * 60)
-    
+
     with build_deps() as deps:
         ctx = RunContextWrapper(deps)
 
@@ -79,7 +79,7 @@ async def example_document_agents():
         csv_path = deps.config.documents_dir / "sample_transactions.csv"
         if csv_path.exists():
             csv_result = await analyze_csv_with_agent(ctx, str(csv_path))
-            print(f"\nCSV Analysis:")
+            print("\nCSV Analysis:")
             print(f"  File: {csv_result.file_name}")
             print(f"  Rows: {csv_result.row_count}")
             print(f"  Categories: {', '.join(csv_result.categories_found)}")
@@ -89,7 +89,7 @@ async def example_document_agents():
         pdf_path = deps.config.documents_dir / "bank_statement.pdf"
         if pdf_path.exists():
             pdf_result = await analyze_pdf_with_agent(ctx, str(pdf_path))
-            print(f"\nPDF Analysis:")
+            print("\nPDF Analysis:")
             print(f"  File: {pdf_result.file_name}")
             print(f"  Pages: {pdf_result.page_count}")
             print(f"  Transactions: {pdf_result.transactions_found}")
@@ -100,7 +100,7 @@ async def example_document_agents():
         result = await Runner.run(
             orchestrator,
             input="Analyze all CSV and PDF files in the documents folder and give me a summary",
-            context=deps
+            context=deps,
         )
         print(f"\nOrchestrator Result: {result.final_output}")
 
@@ -110,7 +110,7 @@ async def example_batch_processing():
     print("\n" + "=" * 60)
     print("Example: Batch Document Processing")
     print("=" * 60)
-    
+
     with build_deps() as deps:
         processor = BatchDocumentProcessor(deps)
 
@@ -123,14 +123,14 @@ async def example_batch_processing():
 
             results = await processor.process_batch(csv_files, pdf_files)
 
-            print(f"\nBatch Processing Results:")
+            print("\nBatch Processing Results:")
             print(f"  CSV processed: {results['csv_processed']}")
             print(f"  PDF processed: {results['pdf_processed']}")
             print(f"  Total: {results['total_processed']}")
 
-            if results['errors']:
+            if results["errors"]:
                 print(f"  Errors: {len(results['errors'])}")
-                for error in results['errors'][:3]:  # Show first 3 errors
+                for error in results["errors"][:3]:  # Show first 3 errors
                     print(f"    - {error}")
 
 
@@ -139,7 +139,7 @@ async def example_validated_tools():
     print("\n" + "=" * 60)
     print("Example: Validated Tools")
     print("=" * 60)
-    
+
     with build_deps() as deps:
         ctx = RunContextWrapper(deps)
 
@@ -150,11 +150,13 @@ async def example_validated_tools():
             "max_amount": 100.0,
             "start_date": "2024-01-01",
             "end_date": "2024-12-31",
-            "limit": 10
+            "limit": 10,
         }
 
         results = await search_transactions_validated(ctx, search_params)
-        print(f"\nSearch Results: {results.count} transactions, total: €{results.total_amount:.2f}")
+        print(
+            f"\nSearch Results: {results.count} transactions, total: €{results.total_amount:.2f}"
+        )
 
         # Add transaction with validation
         new_transaction = TransactionAddParams(
@@ -163,7 +165,7 @@ async def example_validated_tools():
             amount=-250.00,
             currency="EUR",
             category="Shopping",
-            tags=["holiday", "gifts", "christmas"]
+            tags=["holiday", "gifts", "christmas"],
         )
 
         result = await add_validated_transaction(ctx, new_transaction)
@@ -175,12 +177,19 @@ async def example_validated_tools():
             fixed_expenses=[
                 CategoryBudget(category="Rent", amount=1500.0, is_essential=True),
                 CategoryBudget(category="Utilities", amount=200.0, is_essential=True),
-                CategoryBudget(category="Food", amount=600.0, is_essential=True, can_reduce_by=10.0),
-                CategoryBudget(category="Transport", amount=300.0, is_essential=False, can_reduce_by=25.0),
+                CategoryBudget(
+                    category="Food", amount=600.0, is_essential=True, can_reduce_by=10.0
+                ),
+                CategoryBudget(
+                    category="Transport",
+                    amount=300.0,
+                    is_essential=False,
+                    can_reduce_by=25.0,
+                ),
             ],
             savings_goal_percentage=20.0,
             budget_period="monthly",
-            strict_mode=True
+            strict_mode=True,
         )
 
         result = await create_budget_validated(ctx, budget)
@@ -191,7 +200,7 @@ async def example_validated_tools():
             "period": "monthly",
             "group_by": "category",
             "output_format": "summary",
-            "min_transaction_amount": 5.0
+            "min_transaction_amount": 5.0,
         }
 
         result = await analyze_spending_validated(ctx, analysis_params)
@@ -203,55 +212,53 @@ async def example_session_management():
     print("\n" + "=" * 60)
     print("Example: Session Management")
     print("=" * 60)
-    
+
     # SQLite backend (default)
     sqlite_manager = FinancialSessionManager(
-        backend=StorageBackend.SQLITE,
-        db_path="sessions.db"
+        backend=StorageBackend.SQLITE, db_path="sessions.db"
     )
-    
+
     # Save an interaction
     await sqlite_manager.save_interaction(
         session_id="user_123",
         user_input="Show me my spending for last month",
         agent_response="Your total spending last month was €2,345.67...",
-        metadata={"timestamp": datetime.now().isoformat()}
+        metadata={"timestamp": datetime.now().isoformat()},
     )
-    
+
     # Get context from previous messages
     context = await sqlite_manager.get_context("user_123", max_messages=5)
     print(f"\nSession Context:\n{context}")
-    
+
     # JSON backend
     json_manager = FinancialSessionManager(
-        backend=StorageBackend.JSON,
-        storage_dir="session_data"
+        backend=StorageBackend.JSON, storage_dir="session_data"
     )
-    
+
     await json_manager.save_interaction(
         session_id="user_456",
         user_input="Create a budget for me",
         agent_response="Based on your income and expenses, here's your budget...",
-        metadata={"category": "budget_creation"}
+        metadata={"category": "budget_creation"},
     )
-    
+
     # Export session in different formats
     json_export = await sqlite_manager.export_session("user_123", format="json")
     print(f"\nJSON Export (first 200 chars):\n{json_export[:200]}...")
-    
+
     text_export = await json_manager.export_session("user_456", format="text")
     print(f"\nText Export:\n{text_export}")
-    
+
     # In-memory backend (for testing)
     memory_manager = FinancialSessionManager(backend=StorageBackend.MEMORY)
-    
+
     await memory_manager.save_interaction(
         session_id="test_session",
         user_input="Test input",
         agent_response="Test response",
-        metadata={"test": True}
+        metadata={"test": True},
     )
-    
+
     # Custom backend registration example
     print("\nCustom backends can be registered using SessionFactory.register_backend()")
 
@@ -261,14 +268,12 @@ async def example_combined_workflow():
     print("\n" + "=" * 60)
     print("Example: Combined Advanced Workflow")
     print("=" * 60)
-    
+
     # Initialize components
     with build_deps() as deps:
         session_manager = FinancialSessionManager(backend=StorageBackend.SQLITE)
         agent = build_advanced_agent(
-            enable_web_search=True,
-            enable_guardrails=True,
-            enable_hooks=True
+            enable_web_search=True, enable_guardrails=True, enable_hooks=True
         )
 
         session_id = f"workflow_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -276,7 +281,9 @@ async def example_combined_workflow():
         # Step 1: Analyze documents
         print("\n1. Analyzing documents...")
         processor = BatchDocumentProcessor(deps)
-        csv_files = list(deps.config.documents_dir.glob("*.csv"))[:2]  # Limit to 2 files
+        csv_files = list(deps.config.documents_dir.glob("*.csv"))[
+            :2
+        ]  # Limit to 2 files
 
         if csv_files:
             doc_results = await processor.process_batch(csv_files, [])
@@ -291,7 +298,7 @@ async def example_combined_workflow():
                 CategoryBudget(category="Housing", amount=1200.0),
                 CategoryBudget(category="Food", amount=500.0),
             ],
-            savings_goal_percentage=15.0
+            savings_goal_percentage=15.0,
         )
         budget_result = await create_budget_validated(ctx, budget)
 
@@ -302,7 +309,7 @@ async def example_combined_workflow():
         result = await Runner.run(
             agent,
             input="Based on my budget and recent transactions, what should I focus on?",
-            context=deps
+            context=deps,
         )
 
         # Save interaction
@@ -310,7 +317,7 @@ async def example_combined_workflow():
             session_id=session_id,
             user_input="Based on my budget and recent transactions, what should I focus on?",
             agent_response=str(result.final_output),
-            metadata={"workflow": "combined", "step": 3}
+            metadata={"workflow": "combined", "step": 3},
         )
 
         print(f"\nAdvice: {result.final_output}")
@@ -327,38 +334,38 @@ async def main():
     """Run all examples."""
     print("🚀 Advanced Financial Agent SDK Examples")
     print("=" * 60)
-    
+
     # Run examples based on what's available
     try:
         await example_advanced_agent()
     except Exception as e:
         print(f"Advanced agent example error: {e}")
-    
+
     try:
         await example_document_agents()
     except Exception as e:
         print(f"Document agents example error: {e}")
-    
+
     try:
         await example_batch_processing()
     except Exception as e:
         print(f"Batch processing example error: {e}")
-    
+
     try:
         await example_validated_tools()
     except Exception as e:
         print(f"Validated tools example error: {e}")
-    
+
     try:
         await example_session_management()
     except Exception as e:
         print(f"Session management example error: {e}")
-    
+
     try:
         await example_combined_workflow()
     except Exception as e:
         print(f"Combined workflow example error: {e}")
-    
+
     print("\n" + "=" * 60)
     print("✅ All examples completed!")
 
@@ -368,5 +375,5 @@ if __name__ == "__main__":
     if not os.getenv("OPENAI_API_KEY"):
         print("Please set OPENAI_API_KEY environment variable")
         exit(1)
-    
+
     asyncio.run(main())

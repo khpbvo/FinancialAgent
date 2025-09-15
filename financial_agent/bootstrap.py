@@ -41,7 +41,9 @@ def _ingest_excels(deps: RunDeps, messages: list[str]) -> None:
             for excel_file in deps.config.documents_dir.glob(pattern):
                 try:
                     count = process_excel_file(deps, excel_file)
-                    messages.append(f"Ingested {count} transactions from {excel_file.name}")
+                    messages.append(
+                        f"Ingested {count} transactions from {excel_file.name}"
+                    )
                 except ValueError:
                     # Known, expected validation/parsing issues
                     messages.append(f"Failed to process {excel_file.name}.")
@@ -65,7 +67,11 @@ def _ingest_pdfs(deps: RunDeps, messages: list[str]) -> None:
                     skipped += 1
                     continue
                 snippet = (text[:2000] + "...") if len(text) > 2000 else text
-                params = ("summary", f"PDF {p.name} summary:\n{snippet}", f"pdf,{p.name}")
+                params = (
+                    "summary",
+                    f"PDF {p.name} summary:\n{snippet}",
+                    f"pdf,{p.name}",
+                )
                 cur.execute(INSERT_MEMORY, params)
                 count += 1
             except Exception:  # pylint: disable=broad-exception-caught

@@ -1,6 +1,4 @@
 from __future__ import annotations
-from typing import Iterable, Optional
-from sqlite3 import Row
 
 LIST_RECENT_TRANSACTIONS = """
 SELECT date, description, amount, currency, category, source_file

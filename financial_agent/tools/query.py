@@ -14,6 +14,7 @@ def query_error_handler(context: RunContextWrapper[Any], error: Exception) -> st
     else:
         return f"Query failed: {str(error)}. Please check your search criteria."
 
+
 @function_tool(failure_error_function=query_error_handler)
 def list_recent_transactions(ctx: RunContextWrapper[RunDeps], limit: int = 20) -> str:
     """List the most recent transactions from memory.
@@ -55,10 +56,14 @@ def search_transactions(
     cur.execute(
         SEARCH_TRANSACTIONS,
         (
-            start_date, start_date,
-            end_date, end_date,
-            category, category,
-            text, text,
+            start_date,
+            start_date,
+            end_date,
+            end_date,
+            category,
+            category,
+            text,
+            text,
             limit,
         ),
     )

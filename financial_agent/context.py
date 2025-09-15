@@ -10,11 +10,14 @@ DOCUMENTS_DIR = Path(__file__).parents[1] / "documents"
 
 class AppConfig(BaseModel):
     """Application configuration with validation."""
+
     openai_api_key: str = Field(description="OpenAI API key")
     model: str = Field(default="gpt-5", description="Model to use")
     db_path: Path = Field(default=DEFAULT_DB_PATH, description="Database path")
-    documents_dir: Path = Field(default=DOCUMENTS_DIR, description="Documents directory")
-    
+    documents_dir: Path = Field(
+        default=DOCUMENTS_DIR, description="Documents directory"
+    )
+
     class Config:
         arbitrary_types_allowed = True
 
@@ -58,7 +61,7 @@ class DB:
             )
             """
         )
-        
+
         # Create budgets table
         cur.execute(
             """
@@ -72,7 +75,7 @@ class DB:
             )
             """
         )
-        
+
         # Create financial goals table
         cur.execute(
             """
@@ -89,7 +92,7 @@ class DB:
             )
             """
         )
-        
+
         # Create recurring transactions table for detection
         cur.execute(
             """
@@ -105,7 +108,7 @@ class DB:
             )
             """
         )
-        
+
         # Create agent_messages table required by Agents SDK for session management
         cur.execute(
             """
@@ -122,7 +125,7 @@ class DB:
             )
             """
         )
-        
+
         # Create agent_sessions table for session management
         cur.execute(
             """
@@ -134,17 +137,31 @@ class DB:
             )
             """
         )
-        
+
         # Add indexes for performance
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_transactions_amount ON transactions(amount)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_budgets_category ON budgets(category)")
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_transactions_date ON transactions(date)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_transactions_amount ON transactions(amount)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_budgets_category ON budgets(category)"
+        )
         cur.execute("CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_agent_messages_session ON agent_messages(session_id)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_agent_messages_created ON agent_messages(created_at)")
-        cur.execute("CREATE INDEX IF NOT EXISTS idx_agent_sessions_updated ON agent_sessions(updated_at)")
-        
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_messages_session ON agent_messages(session_id)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_messages_created ON agent_messages(created_at)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_sessions_updated ON agent_sessions(updated_at)"
+        )
+
         self.conn.commit()
 
     def close(self) -> None:
@@ -162,9 +179,10 @@ class DB:
 
 class RunDeps(BaseModel):
     """Runtime dependencies with validation."""
+
     config: AppConfig = Field(description="Application configuration")
     db: DB = Field(description="Database connection")
-    
+
     class Config:
         arbitrary_types_allowed = True
 

@@ -3,9 +3,9 @@ from typing import Dict, List, Optional
 from agents import Agent, ModelSettings, function_tool, RunContextWrapper, Runner
 from openai.types.shared import Reasoning
 from .context import RunDeps
-from .logging_utils import get_logger, log_tool_calls
+from .logging_utils import get_logger
 from .specialists.tax_agent import build_tax_agent
-from .specialists.budget_agent import build_budget_agent  
+from .specialists.budget_agent import build_budget_agent
 from .specialists.goal_agent import build_goal_agent
 from .specialists.investment_agent import build_investment_agent
 from .specialists.debt_agent import build_debt_agent
@@ -25,6 +25,7 @@ from .logged_tools import (
     logged_export_clean_monthly_recurring as export_clean_monthly_recurring,
     logged_monthly_cost_summary as monthly_cost_summary,
 )
+
 # from .debug_analyzer import create_debug_tool  # TODO: Fix type issues
 
 
@@ -35,40 +36,46 @@ async def _logged_handoff(
     additional_context: Optional[str],
     deps: RunDeps,
     emoji: str,
-    routing_reason: str
+    routing_reason: str,
 ) -> str:
     """Helper function to execute specialist handoffs with comprehensive logging."""
     logger = get_logger()
-    
+
     # Log routing decision
     logger.log_orchestrator_route(user_query, specialist_name, routing_reason)
-    
+
     # Prepare query with context
     full_query = user_query
     if additional_context:
         full_query += f"\n\nAdditional context: {additional_context}"
-    
+
     # Log handoff details
-    logger.log_handoff("Orchestrator", specialist_name, {
-        "query": user_query,
-        "has_additional_context": bool(additional_context),
-        "full_query_length": len(full_query),
-        "routing_reason": routing_reason
-    })
-    
+    logger.log_handoff(
+        "Orchestrator",
+        specialist_name,
+        {
+            "query": user_query,
+            "has_additional_context": bool(additional_context),
+            "full_query_length": len(full_query),
+            "routing_reason": routing_reason,
+        },
+    )
+
     # Execute specialist agent with logging
     agent_context = {
         "handoff_from": "Orchestrator",
-        "specialist_type": specialist_name.lower().replace(" ", "_")
+        "specialist_type": specialist_name.lower().replace(" ", "_"),
     }
-    
+
     try:
-        with logger.log_agent_execution(specialist_name, full_query, agent_context) as agent_id:
+        with logger.log_agent_execution(
+            specialist_name, full_query, agent_context
+        ) as agent_id:
             result = await Runner.run(specialist_agent, full_query, context=deps)
             logger.log_agent_complete(agent_id, result.final_output)
-            
+
         return f"{emoji} **{specialist_name} Response:**\n\n{result.final_output}"
-        
+
     except Exception as e:
         logger.log_error(f"Specialist handoff failed: {specialist_name}", error=e)
         raise
@@ -122,10 +129,10 @@ COORDINATION NOTES:
 async def handoff_to_tax_specialist(
     ctx: RunContextWrapper[RunDeps],
     user_query: str,
-    additional_context: Optional[str] = None
+    additional_context: Optional[str] = None,
 ) -> str:
     """Handoff tax-related queries to the Tax Specialist agent.
-    
+
     Args:
         user_query: The user's tax-related question or request
         additional_context: Any additional context to provide to the specialist
@@ -137,7 +144,7 @@ async def handoff_to_tax_specialist(
         additional_context,
         ctx.context,
         "🏛️",
-        "User query contains tax-related terms or requirements"
+        "User query contains tax-related terms or requirements",
     )
 
 
@@ -145,10 +152,10 @@ async def handoff_to_tax_specialist(
 async def handoff_to_budget_specialist(
     ctx: RunContextWrapper[RunDeps],
     user_query: str,
-    additional_context: Optional[str] = None
+    additional_context: Optional[str] = None,
 ) -> str:
     """Handoff budget and spending analysis queries to the Budget Specialist agent.
-    
+
     Args:
         user_query: The user's budget/spending-related question or request
         additional_context: Any additional context to provide to the specialist
@@ -160,7 +167,7 @@ async def handoff_to_budget_specialist(
         additional_context,
         ctx.context,
         "💰",
-        "User query contains budget or spending analysis requirements"
+        "User query contains budget or spending analysis requirements",
     )
 
 
@@ -168,10 +175,10 @@ async def handoff_to_budget_specialist(
 async def handoff_to_goal_specialist(
     ctx: RunContextWrapper[RunDeps],
     user_query: str,
-    additional_context: Optional[str] = None
+    additional_context: Optional[str] = None,
 ) -> str:
     """Handoff financial goal and planning queries to the Goal Specialist agent.
-    
+
     Args:
         user_query: The user's goal/planning-related question or request
         additional_context: Any additional context to provide to the specialist
@@ -183,7 +190,7 @@ async def handoff_to_goal_specialist(
         additional_context,
         ctx.context,
         "🎯",
-        "User query contains goal setting or financial planning requirements"
+        "User query contains goal setting or financial planning requirements",
     )
 
 
@@ -191,10 +198,10 @@ async def handoff_to_goal_specialist(
 async def handoff_to_investment_specialist(
     ctx: RunContextWrapper[RunDeps],
     user_query: str,
-    additional_context: Optional[str] = None
+    additional_context: Optional[str] = None,
 ) -> str:
     """Handoff investment and portfolio queries to the Investment Specialist agent.
-    
+
     Args:
         user_query: The user's investment-related question or request
         additional_context: Any additional context to provide to the specialist
@@ -206,7 +213,7 @@ async def handoff_to_investment_specialist(
         additional_context,
         ctx.context,
         "📈",
-        "User query contains investment or portfolio analysis requirements"
+        "User query contains investment or portfolio analysis requirements",
     )
 
 
@@ -214,10 +221,10 @@ async def handoff_to_investment_specialist(
 async def handoff_to_debt_specialist(
     ctx: RunContextWrapper[RunDeps],
     user_query: str,
-    additional_context: Optional[str] = None
+    additional_context: Optional[str] = None,
 ) -> str:
     """Handoff debt and loan queries to the Debt Management Specialist agent.
-    
+
     Args:
         user_query: The user's debt-related question or request
         additional_context: Any additional context to provide to the specialist
@@ -229,175 +236,236 @@ async def handoff_to_debt_specialist(
         additional_context,
         ctx.context,
         "💳",
-        "User query contains debt management or loan-related requirements"
+        "User query contains debt management or loan-related requirements",
     )
 
 
 @function_tool
 async def coordinate_multi_specialist_analysis(
-    ctx: RunContextWrapper[RunDeps],
-    user_query: str,
-    specialists_needed: List[str]
+    ctx: RunContextWrapper[RunDeps], user_query: str, specialists_needed: List[str]
 ) -> str:
     """Coordinate multiple specialists for comprehensive financial analysis.
-    
+
     Args:
         user_query: The user's complex query requiring multiple specialists
         specialists_needed: List of specialists to involve (tax, budget, goal)
     """
     deps = ctx.context
-    
+
     results = []
-    results.append(f"🤝 **Multi-Specialist Analysis**\n")
+    results.append("🤝 **Multi-Specialist Analysis**\n")
     results.append(f"Query: {user_query}\n")
     results.append("=" * 50)
-    
+
     # Run each requested specialist
     if "tax" in specialists_needed:
         tax_agent = build_tax_agent()
         tax_result = await Runner.run(tax_agent, user_query, context=deps)
-        results.append(f"\n🏛️ **Tax Specialist Perspective:**")
+        results.append("\n🏛️ **Tax Specialist Perspective:**")
         results.append(str(tax_result.final_output))
-    
+
     if "budget" in specialists_needed:
-        budget_agent = build_budget_agent()  
+        budget_agent = build_budget_agent()
         budget_result = await Runner.run(budget_agent, user_query, context=deps)
-        results.append(f"\n💰 **Budget Specialist Perspective:**")
+        results.append("\n💰 **Budget Specialist Perspective:**")
         results.append(str(budget_result.final_output))
-    
+
     if "goal" in specialists_needed:
         goal_agent = build_goal_agent()
         goal_result = await Runner.run(goal_agent, user_query, context=deps)
-        results.append(f"\n🎯 **Goal Specialist Perspective:**")
+        results.append("\n🎯 **Goal Specialist Perspective:**")
         results.append(str(goal_result.final_output))
-    
+
     if "investment" in specialists_needed:
         investment_agent = build_investment_agent()
         investment_result = await Runner.run(investment_agent, user_query, context=deps)
-        results.append(f"\n📈 **Investment Specialist Perspective:**")
+        results.append("\n📈 **Investment Specialist Perspective:**")
         results.append(str(investment_result.final_output))
-    
+
     if "debt" in specialists_needed:
         debt_agent = build_debt_agent()
         debt_result = await Runner.run(debt_agent, user_query, context=deps)
-        results.append(f"\n💳 **Debt Specialist Perspective:**")
+        results.append("\n💳 **Debt Specialist Perspective:**")
         results.append(str(debt_result.final_output))
-    
+
     # Synthesize recommendations
-    results.append(f"\n🔄 **Coordinated Recommendations:**")
+    results.append("\n🔄 **Coordinated Recommendations:**")
     results.append("Based on all specialist inputs:")
     results.append("• Review each specialist's advice carefully")
     results.append("• Look for synergies between tax, budget, and goal strategies")
     results.append("• Prioritize actions that benefit multiple areas")
     results.append("• Consider scheduling follow-ups with specific specialists")
-    
+
     return "\n".join(results)
 
 
 def analyze_query_intent(user_query: str) -> Dict[str, any]:
     """Analyze user query to determine routing intent."""
     query_lower = user_query.lower()
-    
+
     # Keywords for each specialist
     tax_keywords = [
-        'tax', 'deduction', 'deductible', 'irs', 'filing', 'write-off', 
-        'tax report', 'tax category', 'tax optimization', 'refund'
+        "tax",
+        "deduction",
+        "deductible",
+        "irs",
+        "filing",
+        "write-off",
+        "tax report",
+        "tax category",
+        "tax optimization",
+        "refund",
     ]
-    
+
     budget_keywords = [
-        'budget', 'spending', 'expense', 'subscription', 'recurring', 
-        'overspend', 'spending pattern', 'categories', 'monthly cost'
+        "budget",
+        "spending",
+        "expense",
+        "subscription",
+        "recurring",
+        "overspend",
+        "spending pattern",
+        "categories",
+        "monthly cost",
     ]
-    
+
     goal_keywords = [
-        'goal', 'save', 'saving', 'target', 'plan', 'financial plan',
-        'emergency fund', 'retirement', 'motivation', 'progress'
+        "goal",
+        "save",
+        "saving",
+        "target",
+        "plan",
+        "financial plan",
+        "emergency fund",
+        "retirement",
+        "motivation",
+        "progress",
     ]
-    
+
     investment_keywords = [
-        'invest', 'investment', 'portfolio', 'stock', 'bond', 'etf',
-        'index fund', 'wealth', 'compound', 'return', 'dividend',
-        'asset allocation', 'diversification', 'risk'
+        "invest",
+        "investment",
+        "portfolio",
+        "stock",
+        "bond",
+        "etf",
+        "index fund",
+        "wealth",
+        "compound",
+        "return",
+        "dividend",
+        "asset allocation",
+        "diversification",
+        "risk",
     ]
-    
+
     debt_keywords = [
-        'debt', 'loan', 'credit', 'payoff', 'consolidation', 'interest',
-        'mortgage', 'student loan', 'credit card', 'payment', 'balance',
-        'refinance', 'snowball', 'avalanche'
+        "debt",
+        "loan",
+        "credit",
+        "payoff",
+        "consolidation",
+        "interest",
+        "mortgage",
+        "student loan",
+        "credit card",
+        "payment",
+        "balance",
+        "refinance",
+        "snowball",
+        "avalanche",
     ]
-    
+
     # Monthly cost intent keywords
     monthly_cost_keywords = [
-        'monthly cost', 'monthly costs', 'monthly spending', 'spending last month',
-        'last month spend', 'expenses last month', 'monthly expenses', 'costs last month'
+        "monthly cost",
+        "monthly costs",
+        "monthly spending",
+        "spending last month",
+        "last month spend",
+        "expenses last month",
+        "monthly expenses",
+        "costs last month",
     ]
 
     # Score each category
     tax_score = sum(1 for keyword in tax_keywords if keyword in query_lower)
     budget_score = sum(1 for keyword in budget_keywords if keyword in query_lower)
     goal_score = sum(1 for keyword in goal_keywords if keyword in query_lower)
-    investment_score = sum(1 for keyword in investment_keywords if keyword in query_lower)
+    investment_score = sum(
+        1 for keyword in investment_keywords if keyword in query_lower
+    )
     debt_score = sum(1 for keyword in debt_keywords if keyword in query_lower)
     monthly_cost_intent = any(k in query_lower for k in monthly_cost_keywords)
-    
+
     # Determine primary intent
     scores = {
-        'tax': tax_score, 
-        'budget': budget_score, 
-        'goal': goal_score,
-        'investment': investment_score,
-        'debt': debt_score
+        "tax": tax_score,
+        "budget": budget_score,
+        "goal": goal_score,
+        "investment": investment_score,
+        "debt": debt_score,
     }
-    primary_intent = max(scores, key=scores.get) if max(scores.values()) > 0 else 'general'
-    
+    primary_intent = (
+        max(scores, key=scores.get) if max(scores.values()) > 0 else "general"
+    )
+
     # Check for multi-specialist needs
     specialists_needed = []
     if tax_score > 0:
-        specialists_needed.append('tax')
+        specialists_needed.append("tax")
     if budget_score > 0:
-        specialists_needed.append('budget')
+        specialists_needed.append("budget")
     if goal_score > 0:
-        specialists_needed.append('goal')
+        specialists_needed.append("goal")
     if investment_score > 0:
-        specialists_needed.append('investment')
+        specialists_needed.append("investment")
     if debt_score > 0:
-        specialists_needed.append('debt')
-    
+        specialists_needed.append("debt")
+
     is_multi_specialist = len(specialists_needed) > 1
-    
+
     # Check for general/data operations
-    data_keywords = ['transactions', 'import', 'csv', 'pdf', 'export', 'recent', 'search']
+    data_keywords = [
+        "transactions",
+        "import",
+        "csv",
+        "pdf",
+        "export",
+        "recent",
+        "search",
+    ]
     is_data_operation = any(keyword in query_lower for keyword in data_keywords)
-    
+
     return {
-        'primary_intent': primary_intent,
-        'specialists_needed': specialists_needed,
-        'is_multi_specialist': is_multi_specialist,
-        'is_data_operation': is_data_operation,
-        'is_monthly_cost': monthly_cost_intent,
-        'confidence_scores': scores
+        "primary_intent": primary_intent,
+        "specialists_needed": specialists_needed,
+        "is_multi_specialist": is_multi_specialist,
+        "is_data_operation": is_data_operation,
+        "is_monthly_cost": monthly_cost_intent,
+        "confidence_scores": scores,
     }
 
 
 def build_orchestrator_agent() -> Agent[RunDeps]:
     """Build the main orchestrator agent with handoff capabilities."""
     logger = get_logger()
-    
+
     # Configure ModelSettings for GPT-5 with reasoning and text verbosity
     # Use proper Agents SDK format for reasoning parameters
     model_settings = ModelSettings(
-        reasoning=Reasoning(effort="high"),     # minimal | low | medium | high
-        verbosity="high"                        # low | medium | high
+        reasoning=Reasoning(effort="high"),  # minimal | low | medium | high
+        verbosity="high",  # low | medium | high
     )
-    
+
     handoff_agents = [
         build_tax_agent(),
         build_budget_agent(),
         build_goal_agent(),
         build_investment_agent(),
-        build_debt_agent()
+        build_debt_agent(),
     ]
-    
+
     tools_list = [
         # Handoff tools
         handoff_to_tax_specialist,
@@ -425,19 +493,22 @@ def build_orchestrator_agent() -> Agent[RunDeps]:
         # Debug and logging tools
         # create_debug_tool(),  # TODO: Fix type issues
     ]
-    
-    logger.log_agent_init("FinancialOrchestrator", {
-        "model": "gpt-5",
-        "model_settings": {
-            "reasoning_effort": "high",
-            "verbosity": "high"
+
+    logger.log_agent_init(
+        "FinancialOrchestrator",
+        {
+            "model": "gpt-5",
+            "model_settings": {"reasoning_effort": "high", "verbosity": "high"},
+            "handoff_agents": [agent.name for agent in handoff_agents],
+            "tool_count": len(tools_list),
+            "tool_names": [
+                getattr(tool, "name", getattr(tool, "__name__", str(tool)))
+                for tool in tools_list
+            ],
+            "specialist_capabilities": ["tax", "budget", "goal", "investment", "debt"],
         },
-        "handoff_agents": [agent.name for agent in handoff_agents],
-        "tool_count": len(tools_list),
-        "tool_names": [getattr(tool, 'name', getattr(tool, '__name__', str(tool))) for tool in tools_list],
-        "specialist_capabilities": ["tax", "budget", "goal", "investment", "debt"]
-    })
-    
+    )
+
     return Agent[RunDeps](
         name="FinancialOrchestrator",
         instructions=ORCHESTRATOR_INSTRUCTIONS,
@@ -448,42 +519,47 @@ def build_orchestrator_agent() -> Agent[RunDeps]:
     )
 
 
-@function_tool 
-def route_user_query(
-    ctx: RunContextWrapper[RunDeps],
-    user_query: str
-) -> str:
+@function_tool
+def route_user_query(ctx: RunContextWrapper[RunDeps], user_query: str) -> str:
     """Analyze user query and provide routing recommendations.
-    
+
     Args:
         user_query: The user's question or request
     """
     intent = analyze_query_intent(user_query)
-    
+
     results = ["🧠 **Query Analysis & Routing**\n"]
-    results.append(f"Query: \"{user_query}\"")
+    results.append(f'Query: "{user_query}"')
     results.append(f"Primary Intent: {intent['primary_intent'].title()}")
-    
-    if intent['is_multi_specialist']:
-        results.append(f"Multi-Specialist Query: {', '.join(intent['specialists_needed'])}")
-        results.append("\n💡 **Recommendation:** Use coordinate_multi_specialist_analysis")
-    elif intent['primary_intent'] == 'tax':
+
+    if intent["is_multi_specialist"]:
+        results.append(
+            f"Multi-Specialist Query: {', '.join(intent['specialists_needed'])}"
+        )
+        results.append(
+            "\n💡 **Recommendation:** Use coordinate_multi_specialist_analysis"
+        )
+    elif intent["primary_intent"] == "tax":
         results.append("\n💡 **Recommendation:** Route to Tax Specialist")
-    elif intent['primary_intent'] == 'budget':
+    elif intent["primary_intent"] == "budget":
         results.append("\n💡 **Recommendation:** Route to Budget Specialist")
-    elif intent['primary_intent'] == 'goal':
+    elif intent["primary_intent"] == "goal":
         results.append("\n💡 **Recommendation:** Route to Goal Specialist")
-    elif intent['primary_intent'] == 'investment':
+    elif intent["primary_intent"] == "investment":
         results.append("\n💡 **Recommendation:** Route to Investment Specialist")
-    elif intent['primary_intent'] == 'debt':
+    elif intent["primary_intent"] == "debt":
         results.append("\n💡 **Recommendation:** Route to Debt Specialist")
-    elif intent['is_monthly_cost']:
-        results.append("\n💡 **Recommendation:** Call monthly_cost_summary (fast, deterministic)")
-    elif intent['is_data_operation']:
+    elif intent["is_monthly_cost"]:
+        results.append(
+            "\n💡 **Recommendation:** Call monthly_cost_summary (fast, deterministic)"
+        )
+    elif intent["is_data_operation"]:
         results.append("\n💡 **Recommendation:** Handle directly (data operation)")
     else:
-        results.append("\n💡 **Recommendation:** General query - orchestrator can handle")
-    
+        results.append(
+            "\n💡 **Recommendation:** General query - orchestrator can handle"
+        )
+
     results.append(f"\nConfidence Scores: {intent['confidence_scores']}")
-    
+
     return "\n".join(results)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict
+from typing import List, Dict
 
 from agents import RunContextWrapper, function_tool
 
@@ -12,24 +12,63 @@ def _last_full_month_range() -> tuple[str, str]:
     first_of_this_month = datetime(today.year, today.month, 1)
     last_of_prev_month = first_of_this_month - timedelta(days=1)
     first_of_prev_month = datetime(last_of_prev_month.year, last_of_prev_month.month, 1)
-    return first_of_prev_month.strftime('%Y-%m-%d'), last_of_prev_month.strftime('%Y-%m-%d')
+    return first_of_prev_month.strftime("%Y-%m-%d"), last_of_prev_month.strftime(
+        "%Y-%m-%d"
+    )
 
 
 def _is_pos_like(desc: str) -> bool:
     d = desc.lower()
-    return any(x in d for x in [
-        'betaalautomaat', 'geldmaat', 'albert heijn', ' ah ', 'jumbo', 'coffeeshop', 'restaurant', 'mc donald', 'kfc'
-    ])
+    return any(
+        x in d
+        for x in [
+            "betaalautomaat",
+            "geldmaat",
+            "albert heijn",
+            " ah ",
+            "jumbo",
+            "coffeeshop",
+            "restaurant",
+            "mc donald",
+            "kfc",
+        ]
+    )
 
 
 def _is_variable_bill(desc: str) -> bool:
     dl = desc.lower()
     for k in [
-        'vodafone', 'libertel', 'odido', 'kpn', 't-mobile', 'tmobile', 'ziggo',
-        'essent', 'energie', 'vandebron', 'nuon', 'eneco', 'waterbedrijf', 'stroom', 'gas',
-        'vgz', 'verzekering', 'verzekeraar', 'nn schadeverzekering', 'anwb verzekeren', 'cz', 'fbto',
-        'brabantwonen', 'huur', 'hypotheek', 'woning', 'woonverzekering',
-        'gemeente', 'belasting', 'heffing', 'waterschap'
+        "vodafone",
+        "libertel",
+        "odido",
+        "kpn",
+        "t-mobile",
+        "tmobile",
+        "ziggo",
+        "essent",
+        "energie",
+        "vandebron",
+        "nuon",
+        "eneco",
+        "waterbedrijf",
+        "stroom",
+        "gas",
+        "vgz",
+        "verzekering",
+        "verzekeraar",
+        "nn schadeverzekering",
+        "anwb verzekeren",
+        "cz",
+        "fbto",
+        "brabantwonen",
+        "huur",
+        "hypotheek",
+        "woning",
+        "woonverzekering",
+        "gemeente",
+        "belasting",
+        "heffing",
+        "waterschap",
     ]:
         if k in dl:
             return True
@@ -42,7 +81,7 @@ def monthly_cost_summary(
     months_back: int = 1,
     last_full_month: bool = True,
     bills_only: bool = False,
-    include_breakdown: bool = True
+    include_breakdown: bool = True,
 ) -> str:
     """Compute monthly costs for the requested period with an optional bills-only filter.
 
@@ -61,7 +100,9 @@ def monthly_cost_summary(
     else:
         end_dt = datetime.now()
         start_dt = end_dt - timedelta(days=30 * max(months_back, 1))
-        start_date, end_date = start_dt.strftime('%Y-%m-%d'), end_dt.strftime('%Y-%m-%d')
+        start_date, end_date = start_dt.strftime("%Y-%m-%d"), end_dt.strftime(
+            "%Y-%m-%d"
+        )
 
     # Fetch expenses in window (amount < 0)
     cur.execute(
@@ -69,18 +110,18 @@ def monthly_cost_summary(
                FROM transactions
                WHERE date >= ? AND date <= ? AND amount < 0
                ORDER BY date ASC""",
-        (start_date, end_date)
+        (start_date, end_date),
     )
     rows = cur.fetchall()
 
     # Apply bills-only filter if requested
     filtered = []
     for r in rows:
-        desc = r['description'] or ''
-        cat = (r['category'] or '').lower()
+        desc = r["description"] or ""
+        cat = (r["category"] or "").lower()
         if bills_only:
             # skip fees/cash withdrawals and obvious POS purchases
-            if cat in ('fees', 'cash_withdrawal'):
+            if cat in ("fees", "cash_withdrawal"):
                 continue
             if _is_pos_like(desc):
                 continue
@@ -90,17 +131,17 @@ def monthly_cost_summary(
 
     used = filtered if bills_only else rows
 
-    total = sum(abs(r['amount']) for r in used)
+    total = sum(abs(r["amount"]) for r in used)
 
     # Build breakdowns
     by_category: Dict[str, float] = {}
     by_merchant: Dict[str, float] = {}
     for r in used:
-        cat = r['category'] or 'uncategorized'
-        by_category[cat] = by_category.get(cat, 0.0) + abs(r['amount'])
+        cat = r["category"] or "uncategorized"
+        by_category[cat] = by_category.get(cat, 0.0) + abs(r["amount"])
         # Naive merchant: first 30 chars of description
-        mname = (r['description'] or '')[:30]
-        by_merchant[mname] = by_merchant.get(mname, 0.0) + abs(r['amount'])
+        mname = (r["description"] or "")[:30]
+        by_merchant[mname] = by_merchant.get(mname, 0.0) + abs(r["amount"])
 
     lines: List[str] = []
     title = "Bills-only Monthly Cost" if bills_only else "Monthly Cost"
@@ -112,7 +153,9 @@ def monthly_cost_summary(
     if include_breakdown:
         # Top categories
         lines.append("\n🏷️ By Category (Top 5)")
-        for cat, amt in sorted(by_category.items(), key=lambda x: x[1], reverse=True)[:5]:
+        for cat, amt in sorted(by_category.items(), key=lambda x: x[1], reverse=True)[
+            :5
+        ]:
             pct = (amt / total * 100) if total > 0 else 0
             lines.append(f"• {cat}: €{amt:.2f} ({pct:.1f}%)")
 
@@ -123,9 +166,12 @@ def monthly_cost_summary(
 
     # Hints
     if bills_only:
-        lines.append("\n💡 Hint: This excludes fees, cash withdrawals, and POS-like purchases.")
+        lines.append(
+            "\n💡 Hint: This excludes fees, cash withdrawals, and POS-like purchases."
+        )
     else:
-        lines.append("\n💡 Hint: Use bills-only for subscriptions/utilities/insurance only.")
+        lines.append(
+            "\n💡 Hint: Use bills-only for subscriptions/utilities/insurance only."
+        )
 
     return "\n".join(lines)
-

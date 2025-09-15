@@ -19,6 +19,9 @@ def add_transaction(
     """Add a single transaction into the database (manual record)."""
     deps = ctx.context
     cur = deps.db.conn.cursor()
-    cur.execute(INSERT_TRANSACTION, (date, description, amount, currency, category, source_file or "manual"))
+    cur.execute(
+        INSERT_TRANSACTION,
+        (date, description, amount, currency, category, source_file or "manual"),
+    )
     deps.db.conn.commit()
     return "Transaction added"

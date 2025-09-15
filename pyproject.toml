@@ -29,3 +29,11 @@ include-package-data = true
 
 [tool.setuptools.package-data]
 "financial_agent.db" = ["finance.db"]
+
+[tool.pytest.ini_options]
+# Only collect tests from the dedicated tests/ directory to avoid running
+# integration/demo scripts that live at the project root and require
+# network access or API keys.
+testpaths = ["tests"]
+# Be quiet by default; individual runs can override as needed.
+addopts = "-q"

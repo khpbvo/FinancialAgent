@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Any, List, Dict, Optional, Tuple
+from typing import Any, List, Dict, Optional, Tuple
 import re
 
 from PyPDF2 import PdfReader
@@ -21,7 +21,7 @@ class PDFSummary:
 
 def extract_text_from_pdf(path: Path, max_chars: int = 4000) -> str:
     """Extract text from PDF with multiple fallback methods."""
-    
+
     # Method 1: Try PyPDF2 first
     try:
         reader = PdfReader(str(path))
@@ -35,17 +35,18 @@ def extract_text_from_pdf(path: Path, max_chars: int = 4000) -> str:
                 continue
             if sum(len(t) for t in texts) > max_chars:
                 break
-        
+
         text_content = "\n".join(texts).strip()
         if text_content:  # If we got meaningful text, return it
             return text_content
-            
+
     except Exception:
         pass
-    
+
     # Method 2: If PyPDF2 fails or returns empty, try pdfplumber for better text extraction
     try:
         import pdfplumber
+
         with pdfplumber.open(path) as pdf:
             texts = []
             for page in pdf.pages:
@@ -64,36 +65,45 @@ def extract_text_from_pdf(path: Path, max_chars: int = 4000) -> str:
         pass  # pdfplumber not available
     except Exception:
         pass
-    
+
     # Method 3: As a fallback, provide metadata and structure info
     try:
         reader = PdfReader(str(path))
         metadata_parts = []
-        
+
         # Add basic file info
         metadata_parts.append(f"PDF File: {path.name}")
         metadata_parts.append(f"Number of pages: {len(reader.pages)}")
-        
+
         # Try to extract any metadata
         if reader.metadata:
-            if reader.metadata.get('/Title'):
+            if reader.metadata.get("/Title"):
                 metadata_parts.append(f"Title: {reader.metadata['/Title']}")
-            if reader.metadata.get('/Creator'):
+            if reader.metadata.get("/Creator"):
                 metadata_parts.append(f"Creator: {reader.metadata['/Creator']}")
-            if reader.metadata.get('/Subject'):
+            if reader.metadata.get("/Subject"):
                 metadata_parts.append(f"Subject: {reader.metadata['/Subject']}")
-        
+
         # Try to get some structural information
-        metadata_parts.append("PDF Structure: This appears to be an image-based or protected PDF")
-        metadata_parts.append("Note: Text extraction not possible - PDF may contain scanned images")
-        
+        metadata_parts.append(
+            "PDF Structure: This appears to be an image-based or protected PDF"
+        )
+        metadata_parts.append(
+            "Note: Text extraction not possible - PDF may contain scanned images"
+        )
+
         # Look for potential patterns in the filename that might indicate content type
         filename_lower = path.name.lower()
-        if any(term in filename_lower for term in ['afschrift', 'statement', 'bank', 'rekening']):
-            metadata_parts.append("Document Type: Likely a bank statement based on filename")
-        
+        if any(
+            term in filename_lower
+            for term in ["afschrift", "statement", "bank", "rekening"]
+        ):
+            metadata_parts.append(
+                "Document Type: Likely a bank statement based on filename"
+            )
+
         return "\n".join(metadata_parts)
-        
+
     except Exception as e:
         return f"PDF processing failed for {path.name}: Unable to extract text or metadata. Error: {str(e)}"
 
@@ -105,7 +115,10 @@ def pdf_error_handler(context: RunContextWrapper[Any], error: Exception) -> str:
     elif "not found" in str(error).lower():
         return "No PDF files found in the documents directory."
     else:
-        return f"PDF ingestion failed: {str(error)}. Please check the PDF files are valid."
+        return (
+            f"PDF ingestion failed: {str(error)}. Please check the PDF files are valid."
+        )
+
 
 def _to_iso_date(d: str) -> str:
     # Accept dd-mm-YYYY or YYYY-mm-dd
@@ -125,8 +138,8 @@ def _parse_amount_eur(s: str) -> Optional[float]:
     m = re.search(r"([+-]?)\s*(\d+[\.,]\d{2})$", s)
     if not m:
         return None
-    sign = -1.0 if m.group(1) == '-' else 1.0
-    val = m.group(2).replace('.', '').replace(',', '.')
+    sign = -1.0 if m.group(1) == "-" else 1.0
+    val = m.group(2).replace(".", "").replace(",", ".")
     try:
         return sign * float(val)
     except Exception:
@@ -135,15 +148,19 @@ def _parse_amount_eur(s: str) -> Optional[float]:
 
 def _classify_pdf_text(text: str) -> str:
     tl = text.lower()
-    if 'afschrift creditcard' in tl or ('kaartnummer' in tl and 'aflossing' in tl and 'incasso' in tl):
-        return 'credit_card_statement'
-    if 'bij- en afschrijvingen' in tl or 'priverekening' in tl:
-        return 'bank_statement'
-    return 'other'
+    if "afschrift creditcard" in tl or (
+        "kaartnummer" in tl and "aflossing" in tl and "incasso" in tl
+    ):
+        return "credit_card_statement"
+    if "bij- en afschrijvingen" in tl or "priverekening" in tl:
+        return "bank_statement"
+    return "other"
 
 
 class PDFClassification(BaseModel):
-    doc_type: str = Field(description="One of: credit_card_statement | bank_statement | other")
+    doc_type: str = Field(
+        description="One of: credit_card_statement | bank_statement | other"
+    )
 
 
 async def _classify_pdf_llm(deps: RunDeps, text: str) -> str:
@@ -161,7 +178,9 @@ async def _classify_pdf_llm(deps: RunDeps, text: str) -> str:
         output_type=PDFClassification,
     )
     try:
-        res = await Runner.run(agent, f"Snippet:\n{text[:7000]}", context=deps, max_turns=1)
+        res = await Runner.run(
+            agent, f"Snippet:\n{text[:7000]}", context=deps, max_turns=1
+        )
         if isinstance(res.final_output, PDFClassification):
             return res.final_output.doc_type
         # Fallback to heuristic if structured output missing
@@ -170,37 +189,48 @@ async def _classify_pdf_llm(deps: RunDeps, text: str) -> str:
         return _classify_pdf_text(text)
 
 
-def _parse_credit_card(text: str, exclude_repayment: bool = True) -> List[Dict[str, Any]]:
+def _parse_credit_card(
+    text: str, exclude_repayment: bool = True
+) -> List[Dict[str, Any]]:
     lines = [l.strip() for l in text.splitlines() if l.strip()]
     entries: List[Dict[str, Any]] = []
 
     # Find rows starting with a date and containing a Type and amount
-    row_re = re.compile(r"^(\d{2}-\d{2}-\d{4})\s+(.+?)\s+(Betaling|Kosten|Geldopname|Incasso)\s+([+-]?\d+[\.,]\d{2})$", re.I)
+    row_re = re.compile(
+        r"^(\d{2}-\d{2}-\d{4})\s+(.+?)\s+(Betaling|Kosten|Geldopname|Incasso)\s+([+-]?\d+[\.,]\d{2})$",
+        re.I,
+    )
     buffer: List[str] = []
 
     def flush(buf: List[str]):
         if not buf:
             return
-        text = ' '.join(buf)
+        text = " ".join(buf)
         m = row_re.match(text)
         if not m:
             return
         date, desc, typ, amount_str = m.group(1), m.group(2), m.group(3), m.group(4)
         amount = _parse_amount_eur(amount_str) or 0.0
-        if exclude_repayment and typ.lower() == 'incasso' and ('aflossing' in desc.lower() or amount > 0):
+        if (
+            exclude_repayment
+            and typ.lower() == "incasso"
+            and ("aflossing" in desc.lower() or amount > 0)
+        ):
             return
-        category = 'creditcard'
-        if typ.lower() == 'kosten':
-            category = 'fees'
-        elif typ.lower() == 'geldopname':
-            category = 'cash_withdrawal'
-        entries.append({
-            'date': _to_iso_date(date),
-            'description': desc,
-            'amount': amount,  # Betaling/Kosten/Geldopname are negative in source
-            'currency': 'EUR',
-            'category': category,
-        })
+        category = "creditcard"
+        if typ.lower() == "kosten":
+            category = "fees"
+        elif typ.lower() == "geldopname":
+            category = "cash_withdrawal"
+        entries.append(
+            {
+                "date": _to_iso_date(date),
+                "description": desc,
+                "amount": amount,  # Betaling/Kosten/Geldopname are negative in source
+                "currency": "EUR",
+                "category": category,
+            }
+        )
 
     # Build rows; lines may wrap, so accumulate until regex matches
     for line in lines:
@@ -210,7 +240,7 @@ def _parse_credit_card(text: str, exclude_repayment: bool = True) -> List[Dict[s
                 flush(buffer)
                 buffer = []
         buffer.append(line)
-        if row_re.match(' '.join(buffer)):
+        if row_re.match(" ".join(buffer)):
             flush(buffer)
             buffer = []
     if buffer:
@@ -221,8 +251,17 @@ def _parse_credit_card(text: str, exclude_repayment: bool = True) -> List[Dict[s
 
 def _guess_sign_from_description(desc: str, amount: float) -> float:
     d = desc.lower()
-    negative_markers = ['bea', 'betaalpas', 'apple pay', 'ideal', 'incasso', 'betaling', 'kosten', 'geldopname']
-    positive_markers = ['storting', 'bijschrijving', 'refund', 'terugbetaling', 'rente']
+    negative_markers = [
+        "bea",
+        "betaalpas",
+        "apple pay",
+        "ideal",
+        "incasso",
+        "betaling",
+        "kosten",
+        "geldopname",
+    ]
+    positive_markers = ["storting", "bijschrijving", "refund", "terugbetaling", "rente"]
     if any(m in d for m in negative_markers):
         return -abs(amount)
     if any(m in d for m in positive_markers):
@@ -252,32 +291,36 @@ def _parse_bank_statement(text: str) -> List[Dict[str, Any]]:
                 else:
                     desc_parts.append(lines[j])
                 j += 1
-            desc = ' '.join([p for p in desc_parts if p])
+            desc = " ".join([p for p in desc_parts if p])
             if amount_val is not None:
                 signed = _guess_sign_from_description(desc, amount_val)
-                entries.append({
-                    'date': date,
-                    'description': desc,
-                    'amount': signed,
-                    'currency': 'EUR',
-                    'category': None,
-                })
+                entries.append(
+                    {
+                        "date": date,
+                        "description": desc,
+                        "amount": signed,
+                        "currency": "EUR",
+                        "category": None,
+                    }
+                )
             i = j
         else:
             i += 1
     return entries
 
 
-def _insert_transactions(deps: RunDeps, source_file: str, rows: List[Dict[str, Any]]) -> Tuple[int, int]:
+def _insert_transactions(
+    deps: RunDeps, source_file: str, rows: List[Dict[str, Any]]
+) -> Tuple[int, int]:
     cur = deps.db.conn.cursor()
     inserted = 0
     skipped = 0
     for r in rows:
-        date = r.get('date', '')
-        desc = r.get('description', '')
-        amount = float(r.get('amount', 0.0))
-        currency = r.get('currency') or 'EUR'
-        category = r.get('category')
+        date = r.get("date", "")
+        desc = r.get("description", "")
+        amount = float(r.get("amount", 0.0))
+        currency = r.get("currency") or "EUR"
+        category = r.get("category")
         # Duplicate guard (global across sources to handle overlapping statements)
         cur.execute(
             """
@@ -287,12 +330,14 @@ def _insert_transactions(deps: RunDeps, source_file: str, rows: List[Dict[str, A
               AND IFNULL(currency,'') = IFNULL(?, '')
             LIMIT 1
             """,
-            (date, desc, amount, currency or '')
+            (date, desc, amount, currency or ""),
         )
         if cur.fetchone():
             skipped += 1
             continue
-        cur.execute(INSERT_TRANSACTION, (date, desc, amount, currency, category, source_file))
+        cur.execute(
+            INSERT_TRANSACTION, (date, desc, amount, currency, category, source_file)
+        )
         inserted += 1
     deps.db.conn.commit()
     return inserted, skipped
@@ -317,7 +362,11 @@ async def ingest_pdfs(
         exclude_credit_repayment: When parsing credit card statements, skip monthly repayment lines
     """
     deps = ctx.context
-    base = deps.config.documents_dir if not directory else (deps.config.documents_dir / directory)
+    base = (
+        deps.config.documents_dir
+        if not directory
+        else (deps.config.documents_dir / directory)
+    )
     if not base.exists():
         return f"Directory not found: {base}"
 
@@ -343,7 +392,14 @@ async def ingest_pdfs(
 
         if mode == "memories":
             snippet = (text[:2000] + "...") if len(text) > 2000 else text
-            cur.execute(INSERT_MEMORY, ("summary", f"PDF {pdf.name} summary/snippet:\n{snippet}", f"pdf,{pdf.name}"))
+            cur.execute(
+                INSERT_MEMORY,
+                (
+                    "summary",
+                    f"PDF {pdf.name} summary/snippet:\n{snippet}",
+                    f"pdf,{pdf.name}",
+                ),
+            )
             summaries += 1
             continue
 
@@ -352,14 +408,21 @@ async def ingest_pdfs(
         doc_type = await _classify_pdf_llm(deps, text)
 
         rows: List[Dict[str, Any]] = []
-        if doc_type == 'credit_card_statement':
+        if doc_type == "credit_card_statement":
             rows = _parse_credit_card(text, exclude_repayment=exclude_credit_repayment)
-        elif doc_type == 'bank_statement':
+        elif doc_type == "bank_statement":
             rows = _parse_bank_statement(text)
         else:
             # As a fallback, store summary memory
             snippet = (text[:2000] + "...") if len(text) > 2000 else text
-            cur.execute(INSERT_MEMORY, ("summary", f"PDF {pdf.name} summary/snippet:\n{snippet}", f"pdf,{pdf.name}"))
+            cur.execute(
+                INSERT_MEMORY,
+                (
+                    "summary",
+                    f"PDF {pdf.name} summary/snippet:\n{snippet}",
+                    f"pdf,{pdf.name}",
+                ),
+            )
             summaries += 1
             continue
 

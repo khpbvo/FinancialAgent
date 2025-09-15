@@ -1,5 +1,4 @@
 from __future__ import annotations
-from pathlib import Path
 
 from agents import Agent, ModelSettings, RunContextWrapper, Runner, function_tool
 
@@ -30,6 +29,7 @@ async def summarize_file(ctx: RunContextWrapper[RunDeps], relative_path: str) ->
     try:
         if path.suffix.lower() == ".pdf":
             from PyPDF2 import PdfReader
+
             txt = []
             reader = PdfReader(str(path))
             for p in reader.pages[:5]:
@@ -60,23 +60,35 @@ async def summarize_file(ctx: RunContextWrapper[RunDeps], relative_path: str) ->
 
 
 @function_tool
-async def summarize_overview(ctx: RunContextWrapper[RunDeps], last_n_memories: int = 20) -> str:
+async def summarize_overview(
+    ctx: RunContextWrapper[RunDeps], last_n_memories: int = 20
+) -> str:
     """Produce an overview summary across the latest stored summaries and transactions."""
     deps = ctx.context
     # pull some content from memories and transactions
     cur = deps.db.conn.cursor()
-    cur.execute("SELECT content FROM memories ORDER BY created_at DESC, id DESC LIMIT ?", (last_n_memories,))
+    cur.execute(
+        "SELECT content FROM memories ORDER BY created_at DESC, id DESC LIMIT ?",
+        (last_n_memories,),
+    )
     mems = [r[0] for r in cur.fetchall()]
 
-    cur.execute("SELECT date, description, amount, currency FROM transactions ORDER BY date DESC, id DESC LIMIT 30")
-    tx_lines = [f"{r['date']}: {r['description']} ({r['amount']} {r['currency']})" for r in cur.fetchall()]
+    cur.execute(
+        "SELECT date, description, amount, currency FROM transactions ORDER BY date DESC, id DESC LIMIT 30"
+    )
+    tx_lines = [
+        f"{r['date']}: {r['description']} ({r['amount']} {r['currency']})"
+        for r in cur.fetchall()
+    ]
 
-    corpus = "\n\n".join([
-        "Recent memories:",
-        *mems,
-        "\nRecent transactions:",
-        *tx_lines,
-    ])
+    corpus = "\n\n".join(
+        [
+            "Recent memories:",
+            *mems,
+            "\nRecent transactions:",
+            *tx_lines,
+        ]
+    )
 
     agent = Agent[RunDeps](
         name="Portfolio Overview",
@@ -88,7 +100,9 @@ async def summarize_overview(ctx: RunContextWrapper[RunDeps], last_n_memories: i
         model_settings=ModelSettings(),
     )
 
-    result = await Runner.run(agent, f"Create an overview based on:\n{corpus[:6000]}", context=deps)
+    result = await Runner.run(
+        agent, f"Create an overview based on:\n{corpus[:6000]}", context=deps
+    )
     output = str(result.final_output)
     cur = deps.db.conn.cursor()
     cur.execute(INSERT_MEMORY, ("insight", output, "overview"))

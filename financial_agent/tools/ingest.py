@@ -87,7 +87,9 @@ def _parse_amount(value: str) -> float:
         return 0.0
 
 
-def process_csv_file(deps: RunDeps, csv_path: Path, csv_map: CSVMap | None = None) -> int:
+def process_csv_file(
+    deps: RunDeps, csv_path: Path, csv_map: CSVMap | None = None
+) -> int:
     """Programmatic CSV ingestion with optional column mapping.
 
     By supplying a :class:`CSVMap` you can describe the layout of your bank's
@@ -123,10 +125,12 @@ def process_csv_file(deps: RunDeps, csv_path: Path, csv_map: CSVMap | None = Non
         cur = deps.db.conn.cursor()
 
         # Detect ING NL export
-        is_ing = (
-            csv_map is None
-            and {"Datum", "Naam / Omschrijving", "Bedrag (EUR)", "Af Bij"}.issubset(set(headers))
-        )
+        is_ing = csv_map is None and {
+            "Datum",
+            "Naam / Omschrijving",
+            "Bedrag (EUR)",
+            "Af Bij",
+        }.issubset(set(headers))
 
         for row in reader:
             if csv_map:
@@ -141,8 +145,12 @@ def process_csv_file(deps: RunDeps, csv_path: Path, csv_map: CSVMap | None = Non
                         amount = -abs(amount)
                     elif sign in credit:
                         amount = abs(amount)
-                currency = row.get(csv_map.currency_col) if csv_map.currency_col else None
-                category = row.get(csv_map.category_col) if csv_map.category_col else None
+                currency = (
+                    row.get(csv_map.currency_col) if csv_map.currency_col else None
+                )
+                category = (
+                    row.get(csv_map.category_col) if csv_map.category_col else None
+                )
             elif is_ing:
                 # ING specifics
                 raw_date = row.get("Datum", "")
@@ -175,19 +183,24 @@ def process_csv_file(deps: RunDeps, csv_path: Path, csv_map: CSVMap | None = Non
                   AND IFNULL(source_file,'') = IFNULL(?, '')
                 LIMIT 1
                 """,
-                (date, desc, amount, currency or '', str(csv_path.name))
+                (date, desc, amount, currency or "", str(csv_path.name)),
             )
             exists = cur.fetchone()
             if exists:
                 continue
 
-            cur.execute(INSERT_TRANSACTION, (date, desc, amount, currency, category, str(csv_path.name)))
+            cur.execute(
+                INSERT_TRANSACTION,
+                (date, desc, amount, currency, category, str(csv_path.name)),
+            )
             inserted += 1
     deps.db.conn.commit()
     return inserted
 
 
-def ingest_csv_file(deps: RunDeps, csv_path: Path, csv_map: CSVMap | None = None) -> str:
+def ingest_csv_file(
+    deps: RunDeps, csv_path: Path, csv_map: CSVMap | None = None
+) -> str:
     inserted = process_csv_file(deps, csv_path, csv_map)
     return f"Ingested {inserted} transactions from {csv_path.name}"
 
@@ -195,11 +208,12 @@ def ingest_csv_file(deps: RunDeps, csv_path: Path, csv_map: CSVMap | None = None
 def csv_error_handler(context: RunContextWrapper[Any], error: Exception) -> str:
     """Custom error handler for CSV ingestion failures."""
     if "not found" in str(error).lower():
-        return f"Could not find the CSV file. Please check the path and try again."
+        return "Could not find the CSV file. Please check the path and try again."
     elif "permission" in str(error).lower():
-        return f"Permission denied accessing the file. Please check file permissions."
+        return "Permission denied accessing the file. Please check file permissions."
     else:
         return f"Failed to ingest CSV: {str(error)}. Please verify the file format is correct."
+
 
 @function_tool(failure_error_function=csv_error_handler)
 def ingest_csv(

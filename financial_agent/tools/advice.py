@@ -1,8 +1,13 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Any
 
-from agents import Agent, ItemHelpers, ModelSettings, RunContextWrapper, Runner, function_tool
+from agents import (
+    Agent,
+    ModelSettings,
+    RunContextWrapper,
+    Runner,
+    function_tool,
+)
 
 from ..context import RunDeps
 from ..db.sql import INSERT_MEMORY
@@ -27,7 +32,9 @@ class AnalysisPrompt:
 
 
 @function_tool
-async def analyze_and_advise(ctx: RunContextWrapper[RunDeps], question: str, extra_context: str | None = None) -> str:
+async def analyze_and_advise(
+    ctx: RunContextWrapper[RunDeps], question: str, extra_context: str | None = None
+) -> str:
     """Ask the financial expert to analyze your data and provide advice.
 
     Args:
