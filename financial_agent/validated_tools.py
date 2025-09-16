@@ -1,7 +1,7 @@
 """Enhanced tools with strict parameter validation using TypedDict and Pydantic."""
 
 from __future__ import annotations
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Annotated
 from typing_extensions import TypedDict
 from datetime import datetime
 from pathlib import Path
@@ -34,12 +34,14 @@ class FileIngestionParams(BaseModel):
     delimiter: str = Field(default=",", description="CSV delimiter")
     skip_rows: int = Field(default=0, ge=0, description="Rows to skip")
 
+    @classmethod
     @validator("file_path")
     def validate_file_exists(cls, v):
         if not v.exists():
             raise ValueError(f"File not found: {v}")
         return v
 
+    @classmethod
     @validator("file_type")
     def validate_file_extension(cls, v, values):
         if "file_path" in values:
@@ -57,26 +59,31 @@ class TransactionAddParams(BaseModel):
         min_length=1, max_length=500, description="Transaction description"
     )
     amount: float = Field(description="Transaction amount")
-    currency: str = Field(
-        default="EUR", regex="^[A-Z]{3}$", description="3-letter currency code"
-    )
+    # Pydantic v2: prefer Annotated + Field constraints over regex positional args
+    currency: Annotated[
+        str,
+        Field(pattern=r"^[A-Z]{3}$", description="3-letter currency code"),
+    ] = "EUR"
     category: Optional[str] = Field(max_length=100, description="Transaction category")
     tags: List[str] = Field(default_factory=list, description="Transaction tags")
 
+    @classmethod
     @validator("date")
     def validate_date_format(cls, v):
         try:
             datetime.strptime(v, "%Y-%m-%d")
-        except ValueError:
-            raise ValueError("Date must be in YYYY-MM-DD format")
+        except ValueError as exc:
+            raise ValueError("Date must be in YYYY-MM-DD format") from exc
         return v
 
+    @classmethod
     @validator("amount")
     def validate_amount(cls, v):
         if abs(v) > 10000000:  # 10 million limit
             raise ValueError("Transaction amount seems unrealistic")
         return round(v, 2)  # Round to 2 decimal places
 
+    @classmethod
     @validator("tags")
     def validate_tags(cls, v):
         # Clean and validate tags
@@ -105,12 +112,14 @@ class BudgetCreationParams(BaseModel):
     budget_period: Literal["monthly", "quarterly", "yearly"] = Field(default="monthly")
     strict_mode: bool = Field(default=False, description="Enforce strict budget limits")
 
+    @classmethod
     @validator("savings_goal_percentage")
     def validate_savings_goal(cls, v):
         if v > 50:
             print("Warning: Savings goal >50% might be unrealistic")
         return v
 
+    @classmethod
     @validator("fixed_expenses")
     def validate_expenses(cls, v, values):
         if "monthly_income" in values:

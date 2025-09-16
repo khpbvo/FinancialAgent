@@ -163,6 +163,7 @@ def _export_excel(transactions: List[Dict], filepath: Path, deps: RunDeps) -> st
 
     # Transactions sheet
     ws = wb.active
+    assert ws is not None
     ws.title = "Transactions"
 
     # Headers with formatting
@@ -198,7 +199,7 @@ def _export_excel(transactions: List[Dict], filepath: Path, deps: RunDeps) -> st
     # Auto-adjust column widths
     for column_cells in ws.columns:
         length = max(len(str(cell.value or "")) for cell in column_cells)
-        ws.column_dimensions[get_column_letter(column_cells[0].column)].width = min(
+        ws.column_dimensions[get_column_letter(int(column_cells[0].column or 0))].width = min(
             length + 2, 50
         )
 
@@ -610,6 +611,7 @@ def _generate_tax_excel(tax_categories: Dict, year: int, filepath: Path) -> str:
 
     # Summary sheet
     ws_summary = wb.active
+    assert ws_summary is not None
     ws_summary.title = "Tax Summary"
 
     # Calculate totals
@@ -842,6 +844,7 @@ def export_budget_report(
     elif format == "excel" and EXCEL_AVAILABLE:
         wb = openpyxl.Workbook()
         ws = wb.active
+        assert ws is not None
         ws.title = "Budget Report"
 
         # Headers
@@ -1256,6 +1259,7 @@ def _export_recurring_excel(
 
     # Summary sheet
     ws_summary = wb.active
+    assert ws_summary is not None
     ws_summary.title = "Recurring Summary"
 
     # Header
@@ -1354,7 +1358,7 @@ def _export_recurring_excel(
     for ws in [ws_summary, ws_detail]:
         for column_cells in ws.columns:
             length = max(len(str(cell.value or "")) for cell in column_cells)
-            ws.column_dimensions[get_column_letter(column_cells[0].column)].width = min(
+            ws.column_dimensions[get_column_letter(int(column_cells[0].column or 0))].width = min(
                 length + 2, 50
             )
 

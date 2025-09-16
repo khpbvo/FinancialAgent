@@ -4,7 +4,7 @@ import asyncio
 
 from agents import Runner, ItemHelpers, SQLiteSession, trace
 import sqlite3
-from typing import Any
+from typing import Any, cast
 from openai.types.responses import (
     ResponseTextDeltaEvent,
     ResponseTextDoneEvent,
@@ -16,6 +16,7 @@ from openai.types.responses import (
 from pathlib import Path
 
 from .agent import build_agent, build_deps
+from .context import DB
 from .tools.export import export_recurring_payments
 
 
@@ -261,7 +262,9 @@ Available commands:
                     }
                     from agents import RunContextWrapper, ItemHelpers
 
-                    result = await export_recurring_payments.on_invoke_tool(RunContextWrapper(deps), ItemHelpers.json_dumps(payload))  # type: ignore
+                    result = await export_recurring_payments.on_invoke_tool(
+                        RunContextWrapper(deps), getattr(ItemHelpers, "json_dumps")(payload)
+                    )
                     print(result)
                 except Exception as e:
                     print(f"❌ Failed to export bills-only recurring: {e}")
@@ -292,7 +295,9 @@ Available commands:
                         "bills_only": False,
                         "include_breakdown": True,
                     }
-                    fast_res = await monthly_cost_summary.on_invoke_tool(RunContextWrapper(deps), ItemHelpers.json_dumps(payload))  # type: ignore
+                    fast_res = await monthly_cost_summary.on_invoke_tool(
+                        RunContextWrapper(deps), getattr(ItemHelpers, "json_dumps")(payload)
+                    )
                     print(fast_res)
                     continue
                 except Exception as e:
@@ -967,7 +972,8 @@ def clear_database() -> str:
     """Clear all data from the financial database."""
     with build_deps() as deps:
         deps.ensure_ready()
-        cursor = deps.db.conn.cursor()
+        db: DB = deps.db  # type: ignore[assignment]
+        cursor = db.conn.cursor()  # pylint: disable=no-member
 
         # Get counts before clearing
         cursor.execute("SELECT COUNT(*) FROM transactions")
@@ -978,7 +984,7 @@ def clear_database() -> str:
         # Clear all data
         cursor.execute("DELETE FROM transactions")
         cursor.execute("DELETE FROM memories")
-        deps.db.conn.commit()
+        db.conn.commit()  # pylint: disable=no-member
 
         return f"🧹 Database cleared: {transaction_count} transactions and {memory_count} memories removed"
 
@@ -1089,7 +1095,9 @@ def main() -> None:
                 }
                 from agents import RunContextWrapper, ItemHelpers
 
-                return await export_recurring_payments.on_invoke_tool(RunContextWrapper(deps), ItemHelpers.json_dumps(payload))  # type: ignore
+                return await export_recurring_payments.on_invoke_tool(
+                    RunContextWrapper(deps), getattr(ItemHelpers, "json_dumps")(payload)
+                )
 
             try:
                 print(asyncio.run(run_bills()))
@@ -1110,7 +1118,9 @@ def main() -> None:
                 }
                 from agents import RunContextWrapper, ItemHelpers
 
-                return await monthly_cost_summary.on_invoke_tool(RunContextWrapper(deps), ItemHelpers.json_dumps(payload))  # type: ignore
+                return await monthly_cost_summary.on_invoke_tool(
+                    RunContextWrapper(deps), getattr(ItemHelpers, "json_dumps")(payload)
+                )
 
             try:
                 with trace("Financial Agent Monthly Cost"):

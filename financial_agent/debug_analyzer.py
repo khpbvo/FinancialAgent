@@ -153,7 +153,7 @@ class LogAnalyzer:
         ]
         if tool_done.empty:
             return []
-        top = tool_done.sort_values("execution_time_ms", ascending=False).head(top_n)
+        top = tool_done.sort_values(by="execution_time_ms", ascending=False)  # type: ignore[reportCallIssue].head(top_n)
         results = []
         for _, row in top.iterrows():
             results.append(
@@ -195,7 +195,7 @@ class LogAnalyzer:
                 }
             )
         )
-        agg = agg.sort_values("total_ms", ascending=False)
+        agg = agg.sort_values(by="total_ms", ascending=False)  # type: ignore[reportCallIssue]
         return agg.to_dict(orient="records")
 
     def get_session_summary(self, session_id: Optional[str] = None) -> Dict[str, Any]:
@@ -362,7 +362,7 @@ class LogAnalyzer:
         }
 
         # Error timeline (last 10 errors)
-        recent_errors = error_events.sort_values("timestamp").tail(10)
+        recent_errors = error_events.sort_values(by="timestamp")  # type: ignore[reportCallIssue].tail(10)
         for _, error in recent_errors.iterrows():
             analysis["error_timeline"].append(
                 {
@@ -420,7 +420,7 @@ class LogAnalyzer:
 
         flow_events = (
             session_events[session_events["event_type"].isin(key_event_types)]
-            .sort_values("timestamp")
+            .sort_values(by="timestamp")  # type: ignore[reportCallIssue]
             .head(limit)
         )
 
@@ -499,9 +499,7 @@ class LogAnalyzer:
         # Group by metric name
         trends = {}
         for metric in perf_df["metric_name"].unique():
-            metric_data = perf_df[perf_df["metric_name"] == metric].sort_values(
-                "timestamp"
-            )
+            metric_data = perf_df[perf_df["metric_name"] == metric].sort_values(by="timestamp")  # type: ignore[reportCallIssue]
 
             if len(metric_data) < 2:
                 continue

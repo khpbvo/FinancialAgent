@@ -1,9 +1,3 @@
-        """SELECT 
-           FROM transactions 
-           FROM transactions 
-           WHERE amount < 0 
-               FROM transactions 
-               WHERE category = ? 
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -43,7 +37,7 @@ def _fetch_transactions(deps: RunDeps, months_back: int):
 
 
 def _compute_category_stats(
-    transactions: List[Dict[str, Any]]
+    transactions: List[Dict[str, Any]],
 ) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, float], Dict[str, float], float]:
     """Aggregate transactions by category, month and weekday."""
     category_analysis: Dict[str, Dict[str, Any]] = {}
@@ -112,9 +106,7 @@ def _build_insights(
             results.append(
                 f"   {i}. {category.title()}: €{data['total']:.2f} ({percentage:.1f}%)"
             )
-            results.append(
-                f"      Avg per transaction: €{data['avg_transaction']:.2f}"
-            )
+            results.append(f"      Avg per transaction: €{data['avg_transaction']:.2f}")
 
     if len(monthly_totals) > 1:
         results.append("\n📈 MONTHLY TRENDS")
@@ -346,7 +338,10 @@ async def create_smart_budget_plan(
     results.append("💰 RECOMMENDED MONTHLY BUDGETS")
 
     recommended_budgets: List[Dict[str, Any]] = []
-    protected_categories = [c.lower() for c in (priority_categories or ["medical", "insurance", "utilities"])]
+    protected_categories = [
+        c.lower()
+        for c in (priority_categories or ["medical", "insurance", "utilities"])
+    ]
 
     for category in categories:
         monthly_avg = (category["total_amount"] or 0) / 3
@@ -469,7 +464,7 @@ async def budget_alert_system(
         )
 
         spending_data = cur.fetchone()
-        spent = (spending_data["spent"] or 0.0)
+        spent = spending_data["spent"] or 0.0
 
         # Calculate daily rate and project to month
         daily_rate = spent / days_to_check if days_to_check > 0 else 0.0

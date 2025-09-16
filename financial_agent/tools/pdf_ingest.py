@@ -192,7 +192,7 @@ async def _classify_pdf_llm(deps: RunDeps, text: str) -> str:
 def _parse_credit_card(
     text: str, exclude_repayment: bool = True
 ) -> List[Dict[str, Any]]:
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
     entries: List[Dict[str, Any]] = []
 
     # Find rows starting with a date and containing a Type and amount
@@ -273,7 +273,7 @@ def _guess_sign_from_description(desc: str, amount: float) -> float:
 def _parse_bank_statement(text: str) -> List[Dict[str, Any]]:
     # Very lightweight parser for ABN style text
     entries: List[Dict[str, Any]] = []
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
     i = 0
     while i < len(lines):
         line = lines[i]

@@ -28,14 +28,14 @@ def _parse_date(value: Any) -> str:
     for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%m/%d/%Y", "%d/%m/%Y", "%Y%m%d"):
         try:
             return datetime.strptime(value_str, fmt).date().isoformat()
-        except:
+        except Exception:
             continue
 
     # Try pandas date parser as fallback
     try:
         parsed = pd.to_datetime(value_str, dayfirst=True)
         return parsed.date().isoformat()
-    except:
+    except Exception:
         return value_str  # Return as-is if all parsing fails
 
 
@@ -64,7 +64,7 @@ def _parse_amount(value: Any) -> float:
 
     try:
         return float(s)
-    except:
+    except Exception:
         return 0.0
 
 
@@ -366,7 +366,7 @@ def list_excel_sheets(ctx: RunContextWrapper[RunDeps], path: str) -> str:
                 df_full = pd.read_excel(excel_path, sheet_name=sheet)
                 rows = len(df_full)
                 result.append(f"{i}. '{sheet}' - {rows} rows, {cols} columns")
-            except:
+            except Exception:
                 result.append(f"{i}. '{sheet}'")
 
         return "\n".join(result)

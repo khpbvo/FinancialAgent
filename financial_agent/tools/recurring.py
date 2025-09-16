@@ -934,9 +934,9 @@ def export_clean_monthly_recurring(
 
     # Export based on format
     if format == "csv":
-        result = _export_clean_csv(clean_monthly, filepath)
+        _export_clean_csv(clean_monthly, filepath)
     elif format == "json":
-        result = _export_clean_json(clean_monthly, filepath, start_date, end_date)
+        _export_clean_json(clean_monthly, filepath, start_date, end_date)
     elif format == "pdf":
         from ..tools.export import PDF_AVAILABLE
 
@@ -944,7 +944,7 @@ def export_clean_monthly_recurring(
             return (
                 "PDF export requires 'reportlab'. Install with: pip install reportlab"
             )
-        result = _export_clean_pdf(clean_monthly, filepath, start_date, end_date)
+        _export_clean_pdf(clean_monthly, filepath, start_date, end_date)
     elif format == "excel":
         from ..tools.export import EXCEL_AVAILABLE
 
@@ -952,7 +952,7 @@ def export_clean_monthly_recurring(
             return (
                 "Excel export requires 'openpyxl'. Install with: pip install openpyxl"
             )
-        result = _export_clean_excel(clean_monthly, filepath, start_date, end_date)
+        _export_clean_excel(clean_monthly, filepath, start_date, end_date)
     else:
         return f"Unsupported format: {format}. Use csv, json, pdf, or excel."
 

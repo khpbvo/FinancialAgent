@@ -316,7 +316,7 @@ class OpenAIAnalyzer:
 
         for call in error_calls:
             # Extract error type
-            error_msg = call.error.lower()
+            error_msg = (call.error or "").lower()
             if "rate limit" in error_msg:
                 error_types["Rate Limit"] += 1
             elif "timeout" in error_msg:
@@ -342,9 +342,9 @@ class OpenAIAnalyzer:
                     "timestamp": call.timestamp,
                     "model": call.model,
                     "error": (
-                        call.error[:200] + "..."
-                        if len(call.error) > 200
-                        else call.error
+                        (call.error or "")[:200] + "..."
+                        if len(call.error or "") > 200
+                        else (call.error or "")
                     ),
                 }
                 for call in sorted(

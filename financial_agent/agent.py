@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os
 from contextlib import contextmanager
-from typing import Any, Generator, cast
+from typing import Any, Generator, TYPE_CHECKING, cast
 
 from agents import (
     Agent,
@@ -11,31 +11,35 @@ from agents import (
     RunContextWrapper,
 )
 
-# Be resilient to different Agents SDK layouts across versions
-try:  # Preferred in current versions
-    from agents.agent import StopAtTools  # type: ignore
-except Exception:  # pragma: no cover - fallback for older/newer SDKs
+# NOTE: We structure these imports so that type checkers see the canonical
+# types from the Agents SDK, while at runtime we remain resilient to different
+# SDK layouts across versions.
+if TYPE_CHECKING:  # Use canonical types for static analysis
+    from agents.agent import StopAtTools as SDKStopAtTools  # pragma: no cover
+    from agents.tool import Tool as SDKTool  # pragma: no cover
+else:  # Runtime: fall back gracefully across SDK versions
     try:
-        # Some versions expose behaviors in a different module
-        from agents.behaviors import StopAtTools  # type: ignore  # pylint: disable=import-error,no-name-in-module
-    except (
-        Exception
-    ):  # Final fallback: define a lightweight shim for import-time safety
+        from agents.agent import StopAtTools as SDKStopAtTools  # type: ignore
+    except Exception:  # pragma: no cover - fallback for older/newer SDKs
+        try:
+            from agents.behaviors import (  # type: ignore  # pylint: disable=import-error,no-name-in-module
+                StopAtTools as SDKStopAtTools,
+            )
+        except Exception:  # Final fallback: define a lightweight shim
 
-        class StopAtTools:  # type: ignore
-            def __init__(self, stop_at_tool_names: list[str] | None = None):
-                self.stop_at_tool_names = stop_at_tool_names or []
+            class SDKStopAtTools:  # type: ignore
+                def __init__(self, stop_at_tool_names: list[str] | None = None):
+                    self.stop_at_tool_names = stop_at_tool_names or []
 
-
-try:
-    from agents.tool import Tool  # type: ignore
-except Exception:  # pragma: no cover - typing-only fallback
     try:
-        from agents.tools import Tool  # type: ignore  # pylint: disable=import-error,no-name-in-module
-    except Exception:
-        # Minimal placeholder to satisfy type hints without importing the SDK
-        class Tool:  # type: ignore
-            pass
+        from agents.tool import Tool as SDKTool  # type: ignore
+    except Exception:  # pragma: no cover - alternate module name
+        try:
+            from agents.tools import Tool as SDKTool  # type: ignore  # pylint: disable=import-error,no-name-in-module
+        except Exception:
+            # Minimal placeholder to satisfy runtime without importing the SDK
+            class SDKTool:  # type: ignore
+                pass
 
 
 try:
@@ -334,15 +338,26 @@ def build_legacy_agent() -> Agent[RunDeps]:
         },
     )
 
+    # Important: keep the tool_use_behavior and tools parameters typed in a way
+    # that doesn't break static analysis if different SDK versions are present.
+    # We cast to Any to avoid cross-module generic invariance issues between
+    # our placeholder SDKTool type and the SDK's Tool definition.
     return Agent[RunDeps](
         name="FinancialAgent",
         instructions=dynamic_instructions,  # Use dynamic instructions
         model=build_app_config().model,
         model_settings=model_settings,
-        tool_use_behavior=StopAtTools(
-            stop_at_tool_names=["add_transaction", "ingest_csv", "ingest_pdfs"]
+        tool_use_behavior=cast(
+            Any,
+            SDKStopAtTools(
+                stop_at_tool_names=[
+                    "add_transaction",
+                    "ingest_csv",
+                    "ingest_pdfs",
+                ]
+            ),
         ),
-        tools=cast(list[Tool], tools_list),
+        tools=cast(list[SDKTool] | Any, tools_list),
     )
 
 

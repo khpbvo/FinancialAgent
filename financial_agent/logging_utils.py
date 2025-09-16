@@ -447,12 +447,9 @@ def log_tool_calls(func: Callable) -> Callable:
     def wrapper(*args, **kwargs):
         logger = get_logger()
 
-        # Extract context and agent name if available
-        ctx = None
+        # Extract agent name if available
         agent_name = "Unknown"
-
         if args and isinstance(args[0], RunContextWrapper):
-            ctx = args[0]
             agent_name = "FinancialAgent"  # Default
 
         # Get function signature for input logging

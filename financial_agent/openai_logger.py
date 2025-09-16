@@ -440,7 +440,6 @@ def _patch_openai_client():
 
         # Note: Avoid patching Responses API streaming methods to prevent
         # interference with SDK streaming internals.
-        responses_mod = None
 
         # Sync client
         if hasattr(completions.Completions, "create") and not hasattr(

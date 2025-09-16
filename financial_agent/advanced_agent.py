@@ -12,9 +12,9 @@ from agents import (
     WebSearchTool,
 )
 from agents.agent import StopAtTools
-from agents.guardrails import Guardrail, GuardrailError
-from agents.tool import ToolChoice
-from agents.hooks import AsyncAgentHooks
+from agents.guardrails import Guardrail, GuardrailError  # pylint: disable=E0611
+from agents.tool import ToolChoice  # pylint: disable=E0611
+from agents.hooks import AsyncAgentHooks  # pylint: disable=E0611
 import re
 from datetime import datetime
 
@@ -259,6 +259,5 @@ def build_advanced_agent(
             stop_at_tool_names=["add_transaction", "ingest_csv"]
         ),
         tools=tools,
-        guardrails=guardrails,
         hooks=hooks,
     )

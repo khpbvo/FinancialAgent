@@ -300,11 +300,12 @@ async def example_combined_workflow():
             ],
             savings_goal_percentage=15.0,
         )
-        budget_result = await create_budget_validated(ctx, budget)
+        await create_budget_validated(ctx, budget)
 
         # Step 3: Run agent with context
         print("\n3. Getting financial advice...")
-        context = await session_manager.get_context(session_id, max_messages=5)
+        # Fetch recent session context if needed (not used in this example)
+        await session_manager.get_context(session_id, max_messages=5)
 
         result = await Runner.run(
             agent,

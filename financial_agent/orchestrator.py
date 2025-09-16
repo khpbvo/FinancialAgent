@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 from agents import Agent, ModelSettings, function_tool, RunContextWrapper, Runner
 from openai.types.shared import Reasoning
 from .context import RunDeps
@@ -299,7 +299,7 @@ async def coordinate_multi_specialist_analysis(
     return "\n".join(results)
 
 
-def analyze_query_intent(user_query: str) -> Dict[str, any]:
+def analyze_query_intent(user_query: str) -> Dict[str, Any]:
     """Analyze user query to determine routing intent."""
     query_lower = user_query.lower()
 
@@ -407,7 +407,7 @@ def analyze_query_intent(user_query: str) -> Dict[str, any]:
         "debt": debt_score,
     }
     primary_intent = (
-        max(scores, key=scores.get) if max(scores.values()) > 0 else "general"
+        max(scores, key=lambda k: scores[k]) if max(scores.values()) > 0 else "general"
     )
 
     # Check for multi-specialist needs
@@ -514,8 +514,8 @@ def build_orchestrator_agent() -> Agent[RunDeps]:
         instructions=ORCHESTRATOR_INSTRUCTIONS,
         model="gpt-5",
         model_settings=model_settings,
-        handoffs=handoff_agents,
-        tools=tools_list,
+        handoffs=cast(List[Any], handoff_agents),  # type: ignore[arg-type]
+        tools=cast(List[Any], tools_list),  # type: ignore[arg-type]
     )
 
 

@@ -26,8 +26,9 @@ class CSVAnalysisResult(BaseModel):
     file_name: str = Field(description="Name of the analyzed file")
     row_count: int = Field(description="Number of rows processed")
     columns: List[str] = Field(description="Column names found")
-    date_range: Optional[str] = Field(description="Date range of transactions")
-    total_amount: Optional[float] = Field(description="Total transaction amount")
+    # Optional fields should default to None for easier construction
+    date_range: Optional[str] = None
+    total_amount: Optional[float] = None
     categories_found: List[str] = Field(description="Unique categories identified")
     parsing_errors: List[str] = Field(description="Any errors encountered")
 
@@ -38,7 +39,7 @@ class PDFAnalysisResult(BaseModel):
     file_name: str = Field(description="Name of the analyzed file")
     page_count: int = Field(description="Number of pages processed")
     transactions_found: int = Field(description="Number of transactions extracted")
-    total_amount: Optional[float] = Field(description="Total amount identified")
+    total_amount: Optional[float] = None
     account_info: Dict[str, str] = Field(description="Account information extracted")
     extraction_confidence: float = Field(
         description="Confidence score of extraction (0-1)"
@@ -368,9 +369,11 @@ class BatchDocumentProcessor:
     async def _process_csv(self, file_path: Path) -> CSVAnalysisResult:
         """Process a single CSV file."""
         ctx = RunContextWrapper(self.context)
-        return await analyze_csv_with_agent(ctx, str(file_path))
+        # FunctionTool objects may not be typed as callable in type stubs
+        return await analyze_csv_with_agent(ctx, str(file_path))  # type: ignore[reportCallIssue]
 
     async def _process_pdf(self, file_path: Path) -> PDFAnalysisResult:
         """Process a single PDF file."""
         ctx = RunContextWrapper(self.context)
-        return await analyze_pdf_with_agent(ctx, str(file_path))
+        # FunctionTool objects may not be typed as callable in type stubs
+        return await analyze_pdf_with_agent(ctx, str(file_path))  # type: ignore[reportCallIssue]

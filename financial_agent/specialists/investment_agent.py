@@ -1,12 +1,5 @@
-        """SELECT 
-           FROM transactions 
-           FROM transactions 
-           WHERE amount > 0 
 from __future__ import annotations
-           WHERE date >= date('now', '-90 days')"""
-from __future__ import annotations
-from agents import Agent, ModelSettings, function_tool, RunContextWrapper
-from openai.types.shared import Reasoning
+from agents import Agent, function_tool, RunContextWrapper
 from ..context import RunDeps
 from .agent_factory import build_specialist_agent
 

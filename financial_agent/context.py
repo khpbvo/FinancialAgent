@@ -1,6 +1,6 @@
 from pathlib import Path
 import sqlite3
-from typing import Optional
+from typing import Optional, cast
 from pydantic import BaseModel, Field
 
 
@@ -188,5 +188,10 @@ class RunDeps(BaseModel):
 
     def ensure_ready(self) -> None:
         """Ensure all dependencies are ready."""
-        self.db.init()
-        self.config.documents_dir.mkdir(parents=True, exist_ok=True)
+        # Help static analyzers understand Pydantic fields' runtime types
+        db = cast(DB, self.db)
+        cfg: AppConfig = cast(AppConfig, self.config)
+        docs_dir: Path = cfg.documents_dir  # pylint: disable=no-member
+
+        db.init()
+        docs_dir.mkdir(parents=True, exist_ok=True)
