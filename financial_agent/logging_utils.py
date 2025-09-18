@@ -151,9 +151,9 @@ class AgentLogger:
         """Truncate large data for logging."""
         if isinstance(data, str) and len(data) > self.max_data_size:
             return data[: self.max_data_size] + "...[TRUNCATED]"
-        elif isinstance(data, dict):
+        if isinstance(data, dict):
             return {k: self._truncate_data(v) for k, v in data.items()}
-        elif isinstance(data, list):
+        if isinstance(data, list):
             return [self._truncate_data(item) for item in data]
         return data
 
@@ -518,9 +518,6 @@ def log_agent_execution(
     except Exception as e:
         logger.log_agent_error(agent_id, e)
         raise
-    else:
-        # Note: log_agent_complete should be called by the caller with the actual result
-        pass
 
 
 def log_agent_result(agent_id: str, result: Any):

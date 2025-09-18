@@ -256,7 +256,7 @@ def build_document_orchestrator() -> Agent[RunDeps]:
     csv_agent = build_csv_analyzer_agent()
     pdf_agent = build_pdf_analyzer_agent()
 
-    instructions = """You are a document processing orchestrator. 
+    instructions = """You are a document processing orchestrator.
     You coordinate specialized agents to analyze financial documents:
     - Use the CSV Analyzer for CSV files
     - Use the PDF Analyzer for PDF statements

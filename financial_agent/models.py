@@ -1,8 +1,8 @@
 """Structured data models for financial agent outputs."""
 
 from __future__ import annotations
-from pydantic import BaseModel, Field
 from typing import List, Optional
+from pydantic import BaseModel, Field
 
 
 class Transaction(BaseModel):

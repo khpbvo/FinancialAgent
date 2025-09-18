@@ -3,6 +3,8 @@
 from __future__ import annotations
 from typing import Any, Optional
 import os
+import re
+from datetime import datetime
 
 from agents import (
     Agent,
@@ -15,8 +17,6 @@ from agents.agent import StopAtTools
 from agents.guardrails import Guardrail, GuardrailError  # pylint: disable=E0611
 from agents.tool import ToolChoice  # pylint: disable=E0611
 from agents.hooks import AsyncAgentHooks  # pylint: disable=E0611
-import re
-from datetime import datetime
 
 from .context import AppConfig, RunDeps
 from .tools.ingest import ingest_csv
@@ -207,9 +207,9 @@ def build_advanced_agent(
 
     # Build tools list with conditional enabling
     tools = [
-        # Ingestion tools with conditional enabling
-        ingest_csv if is_ingestion_enabled else None,
-        ingest_pdfs if is_ingestion_enabled else None,
+        # Ingestion tools (always available; enable at runtime via prompts)
+        ingest_csv,
+        ingest_pdfs,
         # Query tools (always enabled)
         list_recent_transactions,
         search_transactions,
@@ -222,19 +222,13 @@ def build_advanced_agent(
     ]
 
     # Add web search if enabled
-    if enable_web_search and is_web_search_enabled:
+    if enable_web_search:
         tools.append(WebSearchTool())
 
     # Filter out None values
     tools = [t for t in tools if t is not None]
 
-    # Build guardrails
-    guardrails = []
-    if enable_guardrails:
-        guardrails = [
-            PIIGuardrail(),
-            TransactionValidationGuardrail(),
-        ]
+    # Guardrails are defined above; wiring can be added when supported by Agent
 
     # Build hooks
     hooks = FinancialAgentHooks() if enable_hooks else None

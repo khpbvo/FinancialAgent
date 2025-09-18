@@ -4,7 +4,7 @@ import asyncio
 
 from agents import Runner, ItemHelpers, SQLiteSession, trace
 import sqlite3
-from typing import Any, cast
+from typing import Any
 from openai.types.responses import (
     ResponseTextDeltaEvent,
     ResponseTextDoneEvent,
