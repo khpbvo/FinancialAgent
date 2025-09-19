@@ -14,7 +14,7 @@ from agents import (
     WebSearchTool,
 )
 from agents.agent import StopAtTools
-from agents.guardrails import Guardrail, GuardrailError  # pylint: disable=E0611
+from agents import Guardrail, GuardrailError  # pylint: disable=E0611
 from agents.tool import ToolChoice  # pylint: disable=E0611
 from agents.hooks import AsyncAgentHooks  # pylint: disable=E0611
 
